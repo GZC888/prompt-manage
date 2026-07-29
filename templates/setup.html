@@ -1,0 +1,41 @@
+{% extends 'layout.html' %}
+{% from '_icons.html' import icon %}
+{% set token_required = require_token if require_token is defined else (config.get('BOOTSTRAP_TOKEN') or '') %}
+{% set selected_mode = selected_auth_mode if selected_auth_mode is defined else 'global' %}
+{% set disabled = setup_disabled|default(false) %}
+{% block title %}{{ t('初始化 Prompt Manager') }}{% endblock %}
+{% block content %}
+  <div class="auth-shell setup-shell">
+    <section class="auth-panel setup-panel" aria-labelledby="setupTitle">
+      <div class="auth-brand"><img src="{{ url_for('logo_png') }}" alt="" /><span>Prompt Manager</span></div>
+      <p class="eyebrow">{{ t('首次初始化') }}</p>
+      <h1 id="setupTitle">{{ t('建立你的提示词知识库') }}</h1>
+      <p class="auth-subtitle">{{ t('先设置访问方式和管理员密码，之后仍可在设置中调整。') }}</p>
+
+      {% if disabled %}
+        <div class="setup-blocked" role="alert" aria-live="assertive">
+          <span>{{ icon('alert') }}</span>
+          <div><h2>{{ t('初始化暂不可用') }}</h2><p>{{ t('服务端尚未配置初始化令牌，无法安全完成首次设置。') }}</p><p>{{ t('请设置环境变量 BOOTSTRAP_TOKEN 并重启服务，然后重新加载此页面。') }}</p></div>
+        </div>
+      {% else %}
+        <form method="post" class="auth-form setup-form">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+          {% if token_required %}<div class="field"><label for="bootstrap_token">{{ t('初始化令牌') }}</label><div class="password-input-wrap">{{ icon('key') }}<input id="bootstrap_token" name="bootstrap_token" type="password" required autocomplete="one-time-code" /></div></div>{% endif %}
+
+          <fieldset class="choice-fieldset setup-modes">
+            <legend>{{ t('访问方式') }}</legend>
+            <label class="mode-option"><input type="radio" name="auth_mode" value="global" {% if selected_mode == 'global' %}checked{% endif %} /><span class="mode-check">{{ icon('check') }}</span><span><strong>{{ t('全局密码') }}</strong><small>{{ t('每次进入知识库前统一验证') }}</small></span></label>
+            <label class="mode-option"><input type="radio" name="auth_mode" value="per" {% if selected_mode == 'per' %}checked{% endif %} /><span class="mode-check">{{ icon('check') }}</span><span><strong>{{ t('指定提示词密码') }}</strong><small>{{ t('仅锁定你标记为受保护的内容') }}</small></span></label>
+          </fieldset>
+
+          <div class="setup-password-grid">
+            <div class="field"><label for="setup_password">{{ t('访问密码') }}</label><div class="password-input-wrap">{{ icon('lock') }}<input id="setup_password" name="new_password" type="password" minlength="8" required autocomplete="new-password" /></div></div>
+            <div class="field"><label for="setup_confirm_password">{{ t('确认新密码') }}</label><div class="password-input-wrap">{{ icon('check') }}<input id="setup_confirm_password" name="confirm_password" type="password" minlength="8" required autocomplete="new-password" /></div></div>
+          </div>
+          <p class="password-note">{{ icon('info') }} {{ t('密码长度至少为 8 位，建议使用易记的长短语。') }}</p>
+          <button type="submit" class="btn primary block">{{ icon('check') }} {{ t('完成初始化') }}</button>
+        </form>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

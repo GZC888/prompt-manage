@@ -1,0 +1,49 @@
+# Git / VCS
+.git
+.gitignore
+.github
+
+# Python caches & build artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.playwright-cli
+output
+work
+*.egg-info
+build
+dist
+
+# Virtual environments
+.venv
+venv
+env
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+
+# Application data / databases / backups (must never be baked into the image)
+data/
+backups/
+*.sqlite*
+*.db*
+*.sql
+*.bak
+*.backup
+
+# Editor / OS noise
+.DS_Store
+.idea
+.vscode
+*.swp
+
+# Docs that don't need to ship in the image
+*.md
+!README.md
+LICENSE

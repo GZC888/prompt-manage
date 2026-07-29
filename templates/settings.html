@@ -1,0 +1,120 @@
+{% extends 'layout.html' %}
+{% from '_icons.html' import icon %}
+{% block title %}{{ t('设置') }} - {{ t('Prompt 管理器') }}{% endblock %}
+{% block content %}
+  <div class="settings-page">
+    <header class="settings-header">
+      <div>
+        <a class="back-link" href="{{ url_for('index') }}">{{ icon('arrow-left') }} {{ t('返回提示词库') }}</a>
+        <p class="eyebrow">Prompt Manager</p>
+        <h1>{{ t('设置') }}</h1>
+        <p>{{ t('管理显示偏好、访问安全与数据备份。') }}</p>
+      </div>
+    </header>
+
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="{{ t('设置分区') }}">
+        <a href="#generalSettings">{{ icon('sliders') }} {{ t('常规') }}</a>
+        <a href="#accessSettings">{{ icon('lock') }} {{ t('访问安全') }}</a>
+        <a href="#dataSettings">{{ icon('database') }} {{ t('数据管理') }}</a>
+      </nav>
+
+      <div class="settings-content">
+        <form method="post" class="settings-form" aria-labelledby="generalSettingsTitle">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+          <input type="hidden" name="settings_action" value="general" />
+          <section id="generalSettings" class="settings-section">
+            <div class="settings-section-heading">
+              <span class="section-icon">{{ icon('sliders') }}</span>
+              <div><p class="eyebrow">{{ t('常规') }}</p><h2 id="generalSettingsTitle">{{ t('显示与版本') }}</h2><p>{{ t('调整界面语言和版本保留数量。') }}</p></div>
+            </div>
+            <div class="setting-row">
+              <div><h3>{{ t('界面语言') }}</h3><p>{{ t('选择整个知识库使用的语言。') }}</p></div>
+              <fieldset class="choice-fieldset compact-choice">
+                <legend class="sr-only">{{ t('语言') }}</legend>
+                <div class="chip-group">
+                  <label class="chip-option"><input type="radio" name="language" value="zh" {% if language == 'zh' %}checked{% endif %} /><span class="chip">{{ t('中文') }}</span></label>
+                  <label class="chip-option"><input type="radio" name="language" value="en" {% if language == 'en' %}checked{% endif %} /><span class="chip">English</span></label>
+                </div>
+              </fieldset>
+            </div>
+            <div class="setting-row">
+              <div><h3>{{ t('版本保留数量') }}</h3><p id="cleanupHelp">{{ t('每个提示词仅保留最近 N 个版本，超出将自动清理（默认 200）。') }}</p></div>
+              <div class="number-control"><input type="number" id="version_cleanup_threshold" name="version_cleanup_threshold" min="1" inputmode="numeric" value="{{ threshold }}" aria-describedby="cleanupHelp" required /><span>{{ t('个版本') }}</span></div>
+            </div>
+            <div class="settings-actions"><button class="btn primary" type="submit">{{ icon('save') }} {{ t('保存常规设置') }}</button></div>
+          </section>
+        </form>
+
+        <form method="post" class="settings-form" aria-labelledby="authSettingsTitle">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+          <input type="hidden" name="settings_action" value="auth" />
+          <section id="accessSettings" class="settings-section">
+            <div class="settings-section-heading">
+              <span class="section-icon">{{ icon('lock') }}</span>
+              <div><p class="eyebrow">{{ t('访问安全') }}</p><h2 id="authSettingsTitle">{{ t('认证与密码') }}</h2><p>{{ t('控制谁可以进入知识库或查看受保护内容。') }}</p></div>
+            </div>
+            <div class="setting-block">
+              <div class="setting-block-title"><h3>{{ t('密码模式') }}</h3><p>{{ t('选择适合当前使用场景的访问方式。') }}</p></div>
+              <fieldset class="choice-fieldset auth-mode-options">
+                <legend class="sr-only">{{ t('密码模式') }}</legend>
+                <label class="mode-option"><input type="radio" name="auth_mode" value="off" {% if auth_mode == 'off' %}checked{% endif %} /><span class="mode-check">{{ icon('check') }}</span><span><strong>{{ t('关闭') }}</strong><small>{{ t('无需密码即可访问') }}</small></span></label>
+                <label class="mode-option"><input type="radio" name="auth_mode" value="per" {% if auth_mode == 'per' %}checked{% endif %} /><span class="mode-check">{{ icon('check') }}</span><span><strong>{{ t('指定提示词密码') }}</strong><small>{{ t('仅保护你指定的提示词') }}</small></span></label>
+                <label class="mode-option"><input type="radio" name="auth_mode" value="global" {% if auth_mode == 'global' %}checked{% endif %} /><span class="mode-check">{{ icon('check') }}</span><span><strong>{{ t('全局密码') }}</strong><small>{{ t('进入知识库前统一验证') }}</small></span></label>
+              </fieldset>
+            </div>
+            <div class="setting-block password-block">
+              <div class="setting-block-title"><h3>{{ t('设置/修改密码') }}</h3><p>{{ t('建议使用至少 8 位的长密码或短语。') }}</p></div>
+              <div class="auth-fields">
+                {% if has_password %}<div class="field"><label for="current_password">{{ t('当前密码') }}</label><input type="password" name="current_password" id="current_password" autocomplete="current-password" placeholder="{{ t('当前密码（已设置时必填）') }}" /></div>{% endif %}
+                <div class="field"><label for="new_password">{{ t('新密码') }}</label><input type="password" name="new_password" id="new_password" autocomplete="new-password" placeholder="{{ t('新密码（留空则不修改）') }}" /></div>
+                <div class="field"><label for="confirm_password">{{ t('确认新密码') }}</label><input type="password" name="confirm_password" id="confirm_password" autocomplete="new-password" placeholder="{{ t('再次输入新密码') }}" /></div>
+              </div>
+              {% if has_password %}<p class="inline-notice">{{ icon('info') }} {{ t('修改密码或切换密码模式前，需要验证当前密码。') }}</p>{% endif %}
+            </div>
+            <div class="security-note">{{ icon('alert') }} <p>{{ t('指定提示词密码与管理员访问密码相同；知道该密码的人可以登录并管理全站，请勿把它当作只读分享密码。') }}</p></div>
+            <div class="settings-actions"><button class="btn primary" type="submit">{{ icon('save') }} {{ t('保存访问设置') }}</button></div>
+          </section>
+        </form>
+
+        <section id="dataSettings" class="settings-section" aria-labelledby="dataSettingsTitle">
+          <div class="settings-section-heading">
+            <span class="section-icon">{{ icon('database') }}</span>
+            <div><p class="eyebrow">{{ t('数据管理') }}</p><h2 id="dataSettingsTitle">{{ t('备份与恢复') }}</h2><p>{{ t('导出可访问数据，或从备份文件恢复知识库。') }}</p></div>
+          </div>
+          <div class="data-management-grid">
+            <div class="data-column">
+              <div class="data-column-icon">{{ icon('download') }}</div>
+              <h3>{{ t('导出数据') }}</h3>
+              <p>{{ t('将可访问的提示词和完整版本历史导出为文件。') }}</p>
+              <div class="data-actions">
+                <a href="{{ url_for('export_all', format='json') }}" class="btn primary">{{ icon('download') }} {{ t('导出 JSON') }}</a>
+                <a href="{{ url_for('export_all', format='csv') }}" class="btn">{{ icon('download') }} {{ t('导出 CSV') }}</a>
+                {% if is_authenticated %}<a href="{{ url_for('export_all', format='json', include_locked='1', include_auth='1') }}" class="text-link">{{ t('导出完整备份（含认证恢复信息）') }}</a>{% endif %}
+              </div>
+            </div>
+
+            <form method="post" enctype="multipart/form-data" class="data-column import-form danger-zone" aria-labelledby="importSettingsTitle">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+              <input type="hidden" name="settings_action" value="import" />
+              <div class="data-column-icon danger-icon">{{ icon('upload') }}</div>
+              <h3 id="importSettingsTitle">{{ t('导入并覆盖') }}</h3>
+              <p id="importHelp">{{ t('导入会覆盖现有数据，操作前会自动创建备份。') }}</p>
+              <label class="upload-btn" for="importFileInput">{{ icon('upload') }} <span>{{ t('选择 JSON 或 CSV 文件') }}</span><input id="importFileInput" type="file" name="import_file" accept=".json,.csv,application/json,text/csv" aria-describedby="importHelp importFileStatus" required /></label>
+              <div id="importFileStatus" class="file-status" aria-live="polite"><span class="muted">{{ t('未选择文件') }}</span></div>
+              <label class="check-row restore-auth-option"><input id="restoreAuthCheckbox" type="checkbox" name="restore_auth" value="1" aria-describedby="restoreAuthHelp" /><span>{{ t('同时恢复认证设置') }}</span></label>
+              <p class="help warning" id="restoreAuthHelp">{{ t('仅在使用包含认证信息的完整备份时勾选。') }}</p>
+              {% if has_password %}<div id="restoreAuthPasswordField" class="field" hidden><label for="restoreCurrentPassword">{{ t('验证当前密码') }}</label><input id="restoreCurrentPassword" type="password" name="restore_current_password" autocomplete="current-password" aria-describedby="restoreAuthPasswordHelp" disabled /><p class="help" id="restoreAuthPasswordHelp">{{ t('恢复认证设置前必须输入当前密码。') }}</p></div>{% endif %}
+              <div id="restoreBackupPasswordField" class="field" hidden><label for="restoreBackupPassword">{{ t('验证备份密码') }}</label><input id="restoreBackupPassword" type="password" name="restore_backup_password" autocomplete="off" aria-describedby="restoreBackupPasswordHelp" disabled /><p class="help" id="restoreBackupPasswordHelp">{{ t('若备份包含密码，请输入对应密码。') }}</p></div>
+              <button id="importSubmit" class="btn danger" type="submit" disabled>{{ icon('upload') }} {{ t('导入并覆盖数据') }}</button>
+            </form>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script data-cfasync="false" src="{{ url_for('static', filename='js/settings.js', v=(config.get('BUILD_SHA') or 'dev')) }}"></script>
+{% endblock %}

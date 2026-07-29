@@ -1,0 +1,194 @@
+{% extends 'layout.html' %}
+{% from '_icons.html' import icon %}
+{% set editing = (not prompt) or (can_manage and request.args.get('mode') == 'edit') %}
+{% block title %}{{ (prompt and prompt['name']) or t('创建提示词') }} - {{ t('Prompt 管理器') }}{% endblock %}
+{% block content %}
+  {% if editing %}
+    <div class="detail-page editor-page">
+      <header class="detail-header editor-header">
+        <div class="detail-title-group">
+          <a class="back-link" href="{{ url_for('prompt_detail', prompt_id=prompt['id']) if prompt else url_for('index') }}">{{ icon('arrow-left') }} {{ t('返回') }}</a>
+          <p class="eyebrow">{{ t('编辑提示词') if prompt else t('新建提示词') }}</p>
+          <h1>{{ (prompt and prompt['name']) or t('创建提示词') }}</h1>
+        </div>
+        <span id="dirtyFlag" class="dirty-flag" hidden>{{ icon('alert') }} {{ t('有未保存的修改') }}</span>
+      </header>
+
+      <form id="promptForm" method="post" class="editor-layout" enctype="multipart/form-data" data-readonly="false">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+
+        <section class="editor-main" aria-labelledby="contentHeading">
+          <div class="editor-section-head">
+            <div>
+              <p class="eyebrow">{{ t('正文') }}</p>
+              <h2 id="contentHeading">{{ t('提示词内容') }} <span class="req">*</span></h2>
+            </div>
+            <div class="content-toolbar">
+              <button type="button" class="icon-btn" id="previewToggle" title="{{ t('预览') }}" aria-label="{{ t('预览') }}" aria-controls="contentPreview content" aria-pressed="false">{{ icon('eye') }}</button>
+              <button type="button" class="icon-btn" id="copyBtn" title="{{ t('复制内容') }}" aria-label="{{ t('复制内容') }}">{{ icon('copy') }}</button>
+              <button type="button" class="icon-btn" id="clearBtn" title="{{ t('清空内容') }}" aria-label="{{ t('清空内容') }}">{{ icon('x-circle') }}</button>
+            </div>
+          </div>
+          <textarea id="content" name="content" rows="24" placeholder="{{ t('在此输入提示词的完整内容...') }}" aria-labelledby="contentHeading" required>{{ (current and current['content']) or '' }}</textarea>
+          <div id="contentPreview" class="content-preview markdown-body" role="region" aria-label="{{ t('内容预览') }}" tabindex="0" hidden></div>
+          <div class="content-footer">
+            <span class="editor-hint">{{ t('支持 Markdown 格式') }}</span>
+            <span class="char-counter" id="charCounter">0 {{ t('字符') }}</span>
+          </div>
+        </section>
+
+        <aside class="editor-side" aria-label="{{ t('提示词信息') }}">
+          <section class="metadata-section">
+            <div class="editor-section-head compact-head">
+              <div><p class="eyebrow">{{ t('元数据') }}</p><h2>{{ t('基本信息') }}</h2></div>
+            </div>
+            <div class="field">
+              <label for="name">{{ t('提示词名称') }} <span class="req">*</span></label>
+              <input type="text" id="name" name="name" value="{{ (prompt and prompt['name']) or '' }}" placeholder="{{ t('输入提示词的名称') }}" required />
+            </div>
+            <div class="field">
+              <label for="source">{{ t('来源') }}</label>
+              <input type="text" id="source" name="source" value="{{ (prompt and prompt['source']) or '' }}" placeholder="{{ t('例如：团队规范、产品文档') }}" />
+            </div>
+            <div class="field">
+              <label for="tagEntry">{{ t('标签') }}</label>
+              <div id="tagEditor" class="tag-editor">
+                <div id="tagChips" class="tag-chip-list"></div>
+                <input type="text" id="tagEntry" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="tagSuggestions" aria-activedescendant="" placeholder="{{ t('输入标签后按回车') }}" />
+                <input type="hidden" id="tags" name="tags" value="{% if prompt_tags %}{{ prompt_tags|join(', ') }}{% endif %}" />
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-label">{{ t('强调色') }}</span>
+              <div class="color-presets" aria-label="{{ t('选择颜色') }}">
+                {% for preset in ['#2563eb', '#0f766e', '#7c3aed', '#c2410c', '#be123c', '#475569'] %}
+                  <button type="button" class="color-preset" data-color="{{ preset }}" style="--preset-color: {{ preset }}" aria-label="{{ preset }}"></button>
+                {% endfor %}
+                <button type="button" class="color-swatch" id="colorSwatch" aria-label="{{ t('自定义颜色') }}">{{ icon('droplet') }}</button>
+                <input type="color" id="colorPicker" class="color-picker-native" value="{{ (prompt and prompt['color']) or '#2563eb' }}" tabindex="-1" aria-hidden="true" />
+              </div>
+              <div class="color-value-row">
+                <input type="text" id="color" name="color" value="{{ (prompt and prompt['color']) or '' }}" placeholder="#2563eb" aria-label="{{ t('颜色值') }}" />
+                <button type="button" class="icon-btn compact" id="colorClearBtn" title="{{ t('清除颜色') }}" aria-label="{{ t('清除颜色') }}">{{ icon('x') }}</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="notes">{{ t('备注') }}</label>
+              <textarea id="notes" name="notes" rows="3" placeholder="{{ t('补充适用场景或使用提醒') }}">{{ (prompt and prompt['notes']) or '' }}</textarea>
+            </div>
+          </section>
+
+          <section class="metadata-section">
+            <div class="editor-section-head compact-head"><div><p class="eyebrow">{{ t('展示') }}</p><h2>{{ t('封面图片') }}</h2></div></div>
+            <label class="cover-dropzone" id="coverDropzone" for="image_file">
+              {{ icon('upload') }}
+              <strong>{{ t('上传封面') }}</strong>
+              <span>{{ t('拖放或选择 jpg、png、webp') }}</span>
+              <input type="file" id="image_file" name="image_file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" aria-describedby="imageFileHelp" />
+            </label>
+            <p class="help" id="imageFileHelp">{{ t('最大') }} {{ config['MAX_IMAGE_SIZE_MB'] }}MB</p>
+            <div id="selectedImagePreview" class="selected-image-preview" hidden><img alt="{{ t('待上传封面') }}" /></div>
+            {% if prompt and prompt['image_data'] %}
+              <div class="image-preview-box">
+                <img src="{{ url_for('prompt_image', prompt_id=prompt['id']) }}" alt="{{ t('当前图片') }}" class="image-preview" />
+                <label class="check-row remove-cover"><input type="checkbox" name="remove_image" value="1" /> <span>{{ t('移除当前图片') }}</span></label>
+              </div>
+            {% endif %}
+          </section>
+
+          <section class="metadata-section">
+            <div class="editor-section-head compact-head"><div><p class="eyebrow">{{ t('访问') }}</p><h2>{{ t('内容保护') }}</h2></div></div>
+            <label class="toggle-row">
+              <span><strong>{{ t('需要密码') }}</strong><small>{{ t('未解锁时仅显示名称和锁定状态') }}</small></span>
+              <input type="checkbox" name="require_password" value="1" {% if prompt and prompt['require_password'] %}checked{% endif %} {% if auth_mode != 'per' %}disabled{% endif %} />
+              <span class="toggle-track" aria-hidden="true"></span>
+            </label>
+            {% if auth_mode == 'global' %}<p class="help">{{ t('全站当前使用统一访问密码。') }}</p>{% elif auth_mode == 'off' %}<p class="help">{{ t('请先在设置中启用指定提示词密码。') }}</p>{% endif %}
+          </section>
+        </aside>
+
+        <div class="editor-actions">
+          <div class="save-group">
+            {% if prompt %}
+              <label class="save-version-toggle"><input type="checkbox" id="saveVersionToggle" name="do_save_version" value="1" aria-controls="bump_kind" checked /> <span>{{ t('保存为新版本') }}</span></label>
+              <select id="bump_kind" name="bump_kind" class="version-select" aria-label="{{ t('版本号增量') }}">
+                <option value="patch" selected>{{ t('补丁版本 (+0.0.1)') }}</option>
+                <option value="minor">{{ t('次版本 (+0.1.0)') }}</option>
+                <option value="major">{{ t('主版本 (+1.0.0)') }}</option>
+              </select>
+            {% endif %}
+          </div>
+          <div class="editor-primary-actions">
+            {% if prompt %}<button type="button" class="btn danger-subtle" id="deleteBtn">{{ icon('trash') }} {{ t('删除') }}</button>{% endif %}
+            <a href="{{ url_for('prompt_detail', prompt_id=prompt['id']) if prompt else url_for('index') }}" class="btn ghost">{{ t('取消') }}</a>
+            <button type="submit" class="btn primary" id="saveBtn">{{ icon('save') }} {{ t('保存修改') if prompt else t('创建提示词') }}</button>
+          </div>
+        </div>
+      </form>
+
+      {% if prompt %}
+        <form id="deleteForm" method="post" action="{{ url_for('delete_prompt', prompt_id=prompt['id']) }}" hidden><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" /></form>
+      {% endif %}
+    </div>
+  {% else %}
+    <article class="detail-page reader-page">
+      <header class="detail-header reader-header">
+        <div class="detail-title-group">
+          <a class="back-link" href="{{ url_for('index') }}">{{ icon('arrow-left') }} {{ t('返回提示词库') }}</a>
+          <div class="reader-title-row">
+            <span class="reader-mode-badge">{{ icon('eye') }} {{ t('阅读') }}</span>
+            {% if prompt['require_password'] %}<span class="status-badge">{{ icon('unlock') }} {{ t('已解锁') }}</span>{% endif %}
+          </div>
+          <h1>{{ prompt['name'] }}</h1>
+          <div class="reader-subline">
+            <span>{{ icon('branch') }} {{ (current and current['version']) or '—' }}</span>
+            <span>{{ icon('clock') }} {{ prompt['updated_at']|ts }}</span>
+          </div>
+        </div>
+        <div class="reader-actions">
+          <button class="btn js-copy" type="button" data-prompt-id="{{ prompt['id'] }}" data-copy-url="{{ url_for('api_prompt_content', prompt_id=prompt['id']) }}">{{ icon('copy') }} {{ t('复制') }}</button>
+          <a class="btn" href="{{ url_for('versions_page', prompt_id=prompt['id']) }}">{{ icon('history') }} {{ t('历史版本') }}</a>
+          {% if can_manage %}<a class="btn primary" href="{{ url_for('prompt_detail', prompt_id=prompt['id'], mode='edit') }}">{{ icon('edit') }} {{ t('编辑') }}</a>{% endif %}
+        </div>
+      </header>
+
+      <div class="reader-layout">
+        <section class="reader-content" aria-labelledby="readerContentTitle">
+          <h2 id="readerContentTitle" class="sr-only">{{ t('提示词内容') }}</h2>
+          {% if prompt['image_data'] %}<img class="reader-cover" src="{{ url_for('prompt_image', prompt_id=prompt['id']) }}" alt="" />{% endif %}
+          <pre class="reader-text">{{ (current and current['content']) or t('无内容') }}</pre>
+        </section>
+
+        <aside class="reader-metadata" aria-label="{{ t('提示词信息') }}">
+          <section>
+            <h2>{{ t('信息') }}</h2>
+            <dl class="metadata-list">
+              <div><dt>{{ t('来源') }}</dt><dd>{{ prompt['source'] or t('未设置') }}</dd></div>
+              <div><dt>{{ t('当前版本') }}</dt><dd>{{ (current and current['version']) or '—' }}</dd></div>
+              <div><dt>{{ t('最近更新') }}</dt><dd>{{ prompt['updated_at']|ts(16) }}</dd></div>
+              <div><dt>{{ t('访问状态') }}</dt><dd>{{ t('受保护') if prompt['require_password'] else t('普通') }}</dd></div>
+            </dl>
+          </section>
+          {% if prompt_tags %}
+            <section><h2>{{ t('标签') }}</h2><div class="reader-tags">{% for tag in prompt_tags %}<span class="tag">{{ tag }}</span>{% endfor %}</div></section>
+          {% endif %}
+          {% if prompt['notes'] %}<section><h2>{{ t('备注') }}</h2><p class="reader-notes">{{ prompt['notes'] }}</p></section>{% endif %}
+          {% if can_manage %}
+            <section>
+              <h2>{{ t('状态') }}</h2>
+              <div class="reader-status-actions">
+                <form method="post" action="{{ url_for('toggle_favorite', prompt_id=prompt['id']) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" /><button class="btn ghost" type="submit">{{ icon('heart', '', prompt['favorite']) }} {{ t('取消收藏') if prompt['favorite'] else t('收藏') }}</button></form>
+                <form method="post" action="{{ url_for('toggle_pin', prompt_id=prompt['id']) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" /><button class="btn ghost" type="submit">{{ icon('star', '', prompt['pinned']) }} {{ t('取消置顶') if prompt['pinned'] else t('置顶') }}</button></form>
+                <form method="post" action="{{ url_for('toggle_archive', prompt_id=prompt['id']) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" /><button class="btn ghost" type="submit">{{ icon('archive') }} {{ t('取消归档') if prompt['archived_at'] else t('归档') }}</button></form>
+              </div>
+            </section>
+          {% endif %}
+        </aside>
+      </div>
+    </article>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script data-cfasync="false" src="{{ url_for('static', filename='js/detail.js', v=(config.get('BUILD_SHA') or 'dev')) }}"></script>
+{% endblock %}

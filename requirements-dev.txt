@@ -1,0 +1,5 @@
+# 开发 / 测试依赖（不会被打进生产镜像）。
+# Dockerfile 只安装 requirements.txt，所以 pytest 等仅用于本地与 CI。
+-r requirements.txt
+pytest>=8,<9
+ruff==0.15.22

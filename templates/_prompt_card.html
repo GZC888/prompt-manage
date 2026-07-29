@@ -1,0 +1,71 @@
+{% from '_icons.html' import icon %}
+{% if card.locked %}
+  <article class="prompt-card locked-card">
+    <a class="locked-card-link" href="{{ url_for('unlock_prompt', prompt_id=card.id) }}">
+      <span class="locked-visual">{{ icon('lock') }}</span>
+      <span class="locked-copy">
+        <span class="prompt-card-title">{{ card.name }}</span>
+        <span class="locked-status">{{ t('受密码保护') }}</span>
+      </span>
+      <span class="locked-action">{{ t('解锁') }} {{ icon('chevron-right') }}</span>
+    </a>
+  </article>
+{% else %}
+  <article class="prompt-card{% if card.color %} has-accent{% endif %}"{% if card.color %} style="--card-accent: {{ card.color }};"{% endif %}>
+    {% if card.has_image %}
+      <a class="card-cover" href="{{ url_for('prompt_detail', prompt_id=card.id) }}" aria-label="{{ card.name }}">
+        <img src="{{ url_for('prompt_image', prompt_id=card.id) }}" alt="" loading="lazy" />
+      </a>
+    {% endif %}
+
+    <div class="prompt-card-body">
+      <div class="prompt-card-topline">
+        <div class="card-statuses">
+          {% if card.pinned %}<span title="{{ t('已置顶') }}">{{ icon('star', '', true) }}</span>{% endif %}
+          {% if card.favorite %}<span title="{{ t('收藏') }}">{{ icon('heart', '', true) }}</span>{% endif %}
+          {% if card.archived %}<span class="status-label">{{ icon('archive') }} {{ t('已归档') }}</span>{% endif %}
+        </div>
+        <div class="card-actions">
+          {% if card.has_content %}
+            <button class="icon-btn compact js-copy" type="button" data-prompt-id="{{ card.id }}" data-copy-url="{{ url_for('api_prompt_content', prompt_id=card.id) }}" title="{{ t('复制内容') }}" aria-label="{{ t('复制内容') }}">{{ icon('copy') }}</button>
+          {% endif %}
+          {% if can_manage %}
+            <form method="post" action="{{ url_for('toggle_favorite', prompt_id=card.id) }}" class="inline js-toggle-form" data-toggle-label="{{ t('收藏') }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+              <button class="icon-btn compact{% if card.favorite %} is-on{% endif %}" type="submit" title="{{ t('收藏/取消收藏') }}" aria-label="{{ t('收藏') }}" aria-pressed="{{ 'true' if card.favorite else 'false' }}">{{ icon('heart', '', card.favorite) }}</button>
+            </form>
+            <form method="post" action="{{ url_for('toggle_pin', prompt_id=card.id) }}" class="inline js-toggle-form" data-toggle-label="{{ t('置顶') }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+              <button class="icon-btn compact{% if card.pinned %} is-on{% endif %}" type="submit" title="{{ t('置顶/取消置顶') }}" aria-label="{{ t('置顶') }}" aria-pressed="{{ 'true' if card.pinned else 'false' }}">{{ icon('star', '', card.pinned) }}</button>
+            </form>
+            <form method="post" action="{{ url_for('toggle_archive', prompt_id=card.id) }}" class="inline">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+              <button class="icon-btn compact" type="submit" title="{{ t('取消归档') if card.archived else t('归档') }}" aria-label="{{ t('取消归档') if card.archived else t('归档') }}">{{ icon('archive') }}</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <h2><a class="prompt-card-title" href="{{ url_for('prompt_detail', prompt_id=card.id) }}">{{ card.name }}</a></h2>
+
+      {% if card.tags %}
+        <div class="card-tags">
+          {% for tag in card.tags[:4] %}<span class="tag">{{ tag }}</span>{% endfor %}
+          {% if card.tags|length > 4 %}<span class="tag more-tag">+{{ card.tags|length - 4 }}</span>{% endif %}
+        </div>
+      {% endif %}
+
+      {% if card.preview %}
+        <a class="card-preview" href="{{ url_for('prompt_detail', prompt_id=card.id) }}">{{ card.preview }}{% if card.truncated %}…{% endif %}</a>
+      {% elif card.notes %}
+        <p class="card-preview">{{ card.notes }}</p>
+      {% endif %}
+
+      <div class="card-meta">
+        <span title="{{ t('来源：') }}{{ card.source or t('未设置') }}">{{ icon('link') }} {{ card.source or t('未设置') }}</span>
+        <span>{{ icon('branch') }} {{ card.current_version or '—' }}</span>
+        <span>{{ icon('clock') }} {{ card.updated_at|ts(16) }}</span>
+      </div>
+    </div>
+  </article>
+{% endif %}

@@ -1,0 +1,76 @@
+{% extends 'layout.html' %}
+{% from '_icons.html' import icon %}
+{% block title %}{{ t('历史版本') }} - {{ prompt.name }} - {{ t('Prompt 管理器') }}{% endblock %}
+{% block content %}
+  <div class="versions-page">
+    <header class="detail-header versions-header">
+      <div class="detail-title-group">
+        <a class="back-link" href="{{ url_for('prompt_detail', prompt_id=prompt.id) }}">{{ icon('arrow-left') }} {{ t('返回阅读') }}</a>
+        <p class="eyebrow">{{ prompt.name }}</p>
+        <h1>{{ t('版本历史') }}</h1>
+        <p>{{ t('按时间查看每次保存，并选择任意版本进行比较或恢复。') }}</p>
+      </div>
+      {% if versions|length > 1 %}<button class="btn primary" type="button" id="openDiffSelector" aria-haspopup="dialog" aria-controls="diffModal" aria-expanded="false">{{ icon('compare') }} {{ t('选择版本对比') }}</button>{% endif %}
+    </header>
+
+    {% if versions|length == 0 %}
+      <div class="empty-state">
+        <div class="empty-icon">{{ icon('history') }}</div>
+        <h2>{{ t('暂无历史版本') }}</h2>
+        <p>{{ t('保存提示词后，版本会按时间显示在这里。') }}</p>
+        <a href="{{ url_for('prompt_detail', prompt_id=prompt.id, mode='edit') }}" class="btn primary">{{ icon('edit') }} {{ t('开始编辑') }}</a>
+      </div>
+    {% else %}
+      <div class="version-summary" aria-label="{{ t('版本概览') }}">
+        <div><span>{{ t('总版本数') }}</span><strong>{{ versions|length }}</strong></div>
+        <div><span>{{ t('当前版本') }}</span><strong>{{ current.version if current else '—' }}</strong></div>
+        <div><span>{{ t('最近更新') }}</span><strong>{{ versions[0].created_at|ts(16) }}</strong></div>
+      </div>
+
+      <div class="version-timeline">
+        {% for version in versions %}
+          <article class="version-item{% if current and version.id == current.id %} current{% endif %}">
+            <div class="timeline-marker">{{ icon('branch') }}</div>
+            <div class="version-item-content">
+              <div class="version-row">
+                <div><h2>{{ version.version }}</h2><time>{{ version.created_at|ts }}</time></div>
+                {% if current and version.id == current.id %}<span class="status-badge current-version-badge">{{ icon('check') }} {{ t('当前版本') }}</span>{% endif %}
+              </div>
+              <pre class="version-preview">{{ (version.preview_content|trim)[:220] }}{% if (version.preview_content|trim)|length > 220 %}…{% endif %}</pre>
+              <div class="version-actions">
+                <button class="btn ghost js-copy" type="button" data-copy-url="{{ url_for('api_prompt_content', prompt_id=prompt.id, version_id=version.id) }}">{{ icon('copy') }} {{ t('复制') }}</button>
+                {% if current and version.id != current.id %}
+                  <a class="btn ghost" href="{{ url_for('diff_view', prompt_id=prompt.id, left=version.id, right=current.id) }}">{{ icon('compare') }} {{ t('与当前版本对比') }}</a>
+                  {% if can_manage %}<form method="post" action="{{ url_for('rollback_version', prompt_id=prompt.id, version_id=version.id) }}" class="inline" data-confirm="{{ t('确定要回滚到此版本吗？将基于该版本内容创建一个新版本。') }}" data-confirm-title="{{ t('恢复版本') }}">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+                    <input type="hidden" name="bump_kind" value="patch" />
+                    <button class="btn" type="submit">{{ icon('rotate') }} {{ t('恢复到此版本') }}</button>
+                  </form>{% endif %}
+                {% endif %}
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+
+      {% if versions|length > 1 %}
+        <div id="diffModal" class="modal-layer" aria-hidden="true" hidden>
+          <div class="modal-backdrop" data-modal-close></div>
+          <div class="versions-modal-panel" role="dialog" aria-modal="true" aria-labelledby="diffModalTitle" tabindex="-1">
+            <div class="modal-heading"><div><p class="eyebrow">{{ t('版本历史') }}</p><h2 id="diffModalTitle">{{ t('选择对比版本') }}</h2></div><button class="icon-btn compact" type="button" data-modal-close aria-label="{{ t('关闭窗口') }}">{{ icon('x') }}</button></div>
+            <div class="version-select-grid">
+              <div class="field"><label for="leftVersion">{{ t('旧版本') }}</label><select id="leftVersion">{% for version in versions %}<option value="{{ version.id }}">{{ version.version }} · {{ version.created_at|ts }}</option>{% endfor %}</select></div>
+              <div class="field"><label for="rightVersion">{{ t('新版本') }}</label><select id="rightVersion">{% for version in versions %}<option value="{{ version.id }}" {% if loop.first %}selected{% endif %}>{{ version.version }} · {{ version.created_at|ts }}</option>{% endfor %}</select></div>
+            </div>
+            <div class="dialog-actions"><button class="btn ghost" type="button" data-modal-close>{{ t('取消') }}</button><button class="btn primary" type="button" id="doDiff">{{ icon('compare') }} {{ t('开始对比') }}</button></div>
+          </div>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script data-cfasync="false">window.DIFF_BASE = {{ url_for('diff_view', prompt_id=prompt.id)|tojson }};</script>
+  <script data-cfasync="false" src="{{ url_for('static', filename='js/versions.js', v=(config.get('BUILD_SHA') or 'dev')) }}"></script>
+{% endblock %}

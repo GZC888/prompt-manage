@@ -1,0 +1,76 @@
+# Docker Compose for deploying the prebuilt GHCR image (recommended for
+# Dokploy / any VPS). For local development from source, see README.md.
+#
+# Before `docker compose up -d`, create a .env file next to this file with an
+# immutable PROMPT_MANAGE_IMAGE and a strong SECRET_KEY (see .env.example).
+# Set BOOTSTRAP_TOKEN before claiming a brand-new production volume; after setup
+# it may be removed, and the application will keep an unclaimed database closed.
+
+services:
+  prompt-manage:
+    # Production must name an immutable image, preferably a digest. Examples:
+    #   ghcr.io/gzc888/prompt-manage@sha256:<digest>
+    #   ghcr.io/gzc888/prompt-manage:sha-<commit>
+    image: ${PROMPT_MANAGE_IMAGE:?set PROMPT_MANAGE_IMAGE to a versioned tag or digest}
+    pull_policy: missing
+    container_name: prompt-manage
+    ports:
+      # Loopback-only by default. Set HOST_BIND=0.0.0.0 only when a firewall or
+      # private container network prevents untrusted clients reaching this port.
+      - "${HOST_BIND:-127.0.0.1}:${HOST_PORT:-3501}:${APP_PORT:-3501}"
+    volumes:
+      # Persist the SQLite database and import backups across restarts/upgrades.
+      - prompt-data:/app/data
+    environment:
+      # This file is a production deployment surface. Use a separate override
+      # or the source-development instructions when running testing/debug mode.
+      APP_ENV: production
+      APP_PORT: ${APP_PORT:-3501}
+      DB_PATH: ${DB_PATH:-/app/data/data.sqlite3}
+      # REQUIRED: app refuses to start in production without a strong key.
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY (e.g. `openssl rand -hex 32`) in your .env}
+      # Keep true behind HTTPS. Direct HTTP development must explicitly opt out.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      SESSION_COOKIE_SAMESITE: ${SESSION_COOKIE_SAMESITE:-Lax}
+      # Enable only when requests always pass through a trusted reverse proxy.
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+      ENABLE_HSTS: ${ENABLE_HSTS:-true}
+      HSTS_MAX_AGE: ${HSTS_MAX_AGE:-31536000}
+      # Required by the application before claiming a fresh production volume;
+      # an empty value is allowed for an already initialized volume and leaves
+      # /setup fail-closed with HTTP 503.
+      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:-}
+      HSTS_INCLUDE_SUBDOMAINS: ${HSTS_INCLUDE_SUBDOMAINS:-false}
+      AUTH_LOGIN_MAX_ATTEMPTS: ${AUTH_LOGIN_MAX_ATTEMPTS:-10}
+      AUTH_LOGIN_WINDOW_SECONDS: ${AUTH_LOGIN_WINDOW_SECONDS:-900}
+      AUTH_LOCK_SECONDS: ${AUTH_LOCK_SECONDS:-900}
+      GLOBAL_LOGIN_MAX_ATTEMPTS: ${GLOBAL_LOGIN_MAX_ATTEMPTS:-1000}
+      GLOBAL_LOGIN_WINDOW_SECONDS: ${GLOBAL_LOGIN_WINDOW_SECONDS:-3600}
+      MAX_IMPORT_SIZE_MB: ${MAX_IMPORT_SIZE_MB:-10}
+      MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-5}
+      IMPORT_BACKUP_RETENTION: ${IMPORT_BACKUP_RETENTION:-20}
+      ENABLE_SECURITY_HEADERS: ${ENABLE_SECURITY_HEADERS:-true}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-60}
+      GUNICORN_GRACEFUL_TIMEOUT: ${GUNICORN_GRACEFUL_TIMEOUT:-30}
+      GUNICORN_LOG_LEVEL: ${GUNICORN_LOG_LEVEL:-info}
+      # Keep the owner logged in for a long time (default ~10 years).
+      PERMANENT_SESSION_DAYS: ${PERMANENT_SESSION_DAYS:-3650}
+    restart: unless-stopped
+    # Gunicorn allows up to 30s for in-flight requests to finish.
+    stop_grace_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ.get('APP_PORT','3501'), timeout=4).getcode()==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  prompt-data:

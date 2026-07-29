@@ -1,0 +1,28 @@
+{% extends 'layout.html' %}
+{% from '_icons.html' import icon %}
+{% block title %}{{ t('安全验证') }} - {{ t('Prompt 管理器') }}{% endblock %}
+{% block content %}
+  <div class="auth-shell">
+    <section class="auth-panel" aria-labelledby="authTitle">
+      <a class="auth-brand" href="{{ url_for('index') }}"><img src="{{ url_for('logo_png') }}" alt="" /><span>Prompt Manager</span></a>
+      <div class="auth-icon" aria-hidden="true">{{ icon('lock') }}</div>
+      <p class="eyebrow">{{ t('个人提示词知识库') }}</p>
+      <h1 id="authTitle">{% if action == 'login' %}{{ t('欢迎回来') }}{% else %}{{ t('解锁提示词') }}{% endif %}</h1>
+      <p class="auth-subtitle">{% if action == 'login' %}{{ t('输入访问密码以继续进入知识库。') }}{% else %}{{ t('此提示词受保护，验证后可在当前会话中查看。') }}{% endif %}</p>
+
+      {% if prompt %}<div class="locked-prompt-name"><span>{{ icon('file') }}</span><div><small>{{ t('提示词') }}</small><strong>{{ prompt['name'] or ('#' ~ prompt['id']) }}</strong></div></div>{% endif %}
+
+      <form method="post" class="auth-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="next" value="{{ next }}" />
+        <div class="field">
+          <label for="password">{{ t('访问密码') }}</label>
+          <div class="password-input-wrap">{{ icon('key') }}<input type="password" id="password" name="password" placeholder="{{ t('请输入密码') }}" autocomplete="current-password" required autofocus /></div>
+        </div>
+        <button type="submit" class="btn primary block">{{ icon('unlock') }} {% if action == 'login' %}{{ t('进入知识库') }}{% else %}{{ t('解锁并查看') }}{% endif %}</button>
+        {% if action != 'login' %}<a href="{{ url_for('index') }}" class="btn ghost block">{{ t('返回提示词库') }}</a>{% endif %}
+      </form>
+    </section>
+    <button id="themeToggleAuth" class="auth-theme-toggle" type="button" aria-label="{{ t('切换主题') }}" title="{{ t('切换主题') }}">{{ icon('sun') }}<span>{{ t('切换主题') }}</span></button>
+  </div>
+{% endblock %}

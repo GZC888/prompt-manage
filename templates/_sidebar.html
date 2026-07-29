@@ -1,0 +1,68 @@
+{% from '_icons.html' import icon %}
+<aside id="sidebarPanel" class="library-sidebar" aria-label="{{ t('筛选侧边栏') }}">
+  <div class="sidebar-mobile-head">
+    <h2>{{ icon('sliders') }} {{ t('筛选与范围') }}</h2>
+    <button id="drawerClose" class="icon-btn compact" type="button" title="{{ t('收起筛选') }}" aria-label="{{ t('收起筛选') }}">{{ icon('x') }}</button>
+  </div>
+
+  <nav class="scope-nav" aria-label="{{ t('提示词范围') }}">
+    <p class="sidebar-label">{{ t('资料库') }}</p>
+    {% set scopes = [
+      ('all', '全部提示词', 'home'),
+      ('favorites', '收藏', 'heart'),
+      ('pinned', '已置顶', 'star'),
+      ('locked', '受保护', 'lock'),
+      ('archived', '已归档', 'archive')
+    ] %}
+    {% for key, label, ic in scopes %}
+      <a class="scope-link{% if view == key %} active{% endif %}"
+         {% if view == key %}aria-current="page"{% endif %}
+         href="{{ url_for('index', view=key, sort=sort if sort != 'updated' else None) }}">
+        <span class="scope-link-main">{{ icon(ic) }} <span>{{ t(label) }}</span></span>
+        <span class="scope-count">{{ scope_counts.get(key, 0) }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+
+  <section class="sidebar-section" aria-labelledby="tagFilterTitle">
+    <div class="sidebar-section-head">
+      <h2 id="tagFilterTitle">{{ t('标签') }}</h2>
+      {% if selected_tags %}<button class="text-button reset-btn" type="button" data-reset="tags">{{ t('清除') }}</button>{% endif %}
+    </div>
+    <div class="facet-list">
+      {% if tag_counts %}
+        {% for tag, count in tag_counts|dictsort(by='value', reverse=True) %}
+          <label class="facet-item">
+            <input type="checkbox" name="ftag" value="{{ tag }}" {% if tag in selected_tags %}checked{% endif %} />
+            <span class="facet-check">{{ icon('check') }}</span>
+            <span class="facet-label" title="{{ tag }}">{{ tag }}</span>
+            <span class="facet-count">{{ count }}</span>
+          </label>
+        {% endfor %}
+      {% else %}
+        <p class="facet-empty">{{ t('暂无标签') }}</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="sidebar-section" aria-labelledby="sourceFilterTitle">
+    <div class="sidebar-section-head">
+      <h2 id="sourceFilterTitle">{{ t('来源') }}</h2>
+      {% if selected_sources %}<button class="text-button reset-btn" type="button" data-reset="sources">{{ t('清除') }}</button>{% endif %}
+    </div>
+    <div class="facet-list">
+      {% if source_counts %}
+        {% for source, count in source_counts|dictsort(by='value', reverse=True) %}
+          <label class="facet-item">
+            <input type="checkbox" name="fsrc" value="{{ source }}" {% if source in selected_sources %}checked{% endif %} />
+            <span class="facet-check">{{ icon('check') }}</span>
+            <span class="facet-label" title="{{ t('未设置') if source == '(empty)' else source }}">{{ t('未设置') if source == '(empty)' else source }}</span>
+            <span class="facet-count">{{ count }}</span>
+          </label>
+        {% endfor %}
+      {% else %}
+        <p class="facet-empty">{{ t('暂无来源') }}</p>
+      {% endif %}
+    </div>
+  </section>
+</aside>

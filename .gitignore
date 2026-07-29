@@ -1,0 +1,35 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Runtime data
+data/
+backups/
+*.sqlite*
+*.db*
+*.sql
+*.bak
+*.backup
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.playwright-cli/
+output/
+work/
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# Editors and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp

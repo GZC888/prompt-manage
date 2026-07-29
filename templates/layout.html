@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="{{ lang_html }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
+  <meta name="csrf-token" content="{{ csrf_token() }}" />
+  <title>{% block title %}{{ t('Prompt 管理器') }}{% endblock %}</title>
+  <link rel="icon" type="image/png" href="{{ url_for('logo_png') }}" />
+  <script data-cfasync="false">
+    (function () {
+      var root = document.documentElement;
+      try {
+        var theme = localStorage.getItem('theme');
+        if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme);
+        root.setAttribute('data-view-mode', localStorage.getItem('viewMode') === 'list' ? 'list' : 'grid');
+      } catch (error) {
+        root.setAttribute('data-view-mode', 'grid');
+      }
+      root.setAttribute('data-sidebar-open', 'false');
+    })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v=(config.get('BUILD_SHA') or 'dev')) }}" />
+</head>
+<body class="page-{{ request.endpoint or 'unknown' }}">
+  {% from '_icons.html' import icon %}
+  <a class="skip-link" href="#mainContent">{{ t('跳到主要内容') }}</a>
+
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('setup') if request.endpoint == 'setup' else url_for('index') }}" aria-label="{{ t('提示词管理') }}">
+      <img src="{{ url_for('logo_png') }}" alt="" class="brand-logo" />
+      <span class="brand-copy"><strong>Prompt Manager</strong><small>{{ t('个人提示词知识库') }}</small></span>
+    </a>
+
+    {% if request.endpoint not in ('setup', 'login') %}
+      <button id="cmdkBtn" class="command-trigger" type="button" aria-label="{{ t('打开命令面板') }}" aria-haspopup="dialog" aria-expanded="false" aria-controls="cmdk">
+        {{ icon('search') }}
+        <span>{{ t('搜索提示词') }}</span>
+        <kbd>⌘ K</kbd>
+      </button>
+    {% endif %}
+
+    <nav class="nav" aria-label="{{ t('主导航') }}">
+      <button id="themeToggle" class="icon-btn" type="button" title="{{ t('切换主题') }}" aria-label="{{ t('切换主题') }}">
+        <span class="theme-icon-light">{{ icon('sun') }}</span>
+        <span class="theme-icon-dark">{{ icon('moon') }}</span>
+      </button>
+      {% if request.endpoint not in ('setup', 'login') and can_manage %}
+        <a href="{{ url_for('settings') }}" class="icon-btn{% if request.endpoint == 'settings' %} is-active{% endif %}" title="{{ t('设置') }}" aria-label="{{ t('设置') }}">{{ icon('settings') }}</a>
+      {% endif %}
+      {% if request.endpoint not in ('setup', 'login') and (is_authenticated or has_unlocks) %}
+        <form method="post" action="{{ url_for('logout') }}" class="inline">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="icon-btn" title="{{ t('退出登录') if is_authenticated else t('重新锁定') }}" aria-label="{{ t('退出登录') if is_authenticated else t('重新锁定') }}">{{ icon('log-out') }}</button>
+        </form>
+      {% elif request.endpoint not in ('setup', 'login') and auth_configured %}
+        <a href="{{ url_for('login', next=request.full_path.rstrip('?')) }}" class="icon-btn" title="{{ t('登录') }}" aria-label="{{ t('登录') }}">{{ icon('log-in') }}</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <div id="toastRoot" class="toast-root" aria-live="polite" aria-atomic="false">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="toast {{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}" aria-live="{{ 'assertive' if category == 'error' else 'polite' }}">
+          <span class="toast-msg">{{ t(message) }}</span>
+          <button class="toast-close" type="button" aria-label="{{ t('关闭提示') }}">{{ icon('x') }}</button>
+        </div>
+      {% endfor %}
+    {% endwith %}
+  </div>
+
+  <main id="mainContent" class="site-main" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if request.endpoint not in ('setup', 'login') %}
+    <div id="cmdk" class="modal-layer command-palette" aria-hidden="true" hidden>
+      <div class="modal-backdrop" data-cmdk-close></div>
+      <div class="cmdk-panel" role="dialog" aria-modal="true" aria-labelledby="cmdkTitle" aria-describedby="cmdkStatus" tabindex="-1">
+        <h2 id="cmdkTitle" class="sr-only">{{ t('命令面板') }}</h2>
+        <div class="cmdk-input-row">
+          {{ icon('search', 'cmdk-search-icon') }}
+          <input id="cmdkInput" type="text" role="combobox" aria-label="{{ t('搜索提示词') }}" aria-autocomplete="list" aria-controls="cmdkList" aria-expanded="false" aria-activedescendant="" autocomplete="off" placeholder="{{ t('搜索提示词或执行命令') }}" />
+          <button id="cmdkClose" class="icon-btn compact" type="button" data-cmdk-close title="{{ t('关闭窗口') }}" aria-label="{{ t('关闭窗口') }}">{{ icon('x') }}</button>
+        </div>
+        <div id="cmdkStatus" class="cmdk-status" role="status" aria-live="polite" hidden></div>
+        <ul id="cmdkList" class="cmdk-list" role="listbox" aria-label="{{ t('命令与搜索结果') }}"></ul>
+        <div class="cmdk-footer"><span>↑↓ {{ t('选择') }}</span><span>↵ {{ t('打开') }}</span><span>Esc {{ t('关闭') }}</span></div>
+      </div>
+    </div>
+  {% endif %}
+
+  <div id="confirmDialog" class="modal-layer confirm-dialog" aria-hidden="true" hidden>
+    <div class="modal-backdrop" data-confirm-cancel></div>
+    <div class="confirm-panel" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage" tabindex="-1">
+      <div class="confirm-icon" aria-hidden="true">{{ icon('alert') }}</div>
+      <div class="confirm-copy">
+        <h2 id="confirmTitle">{{ t('确认操作') }}</h2>
+        <p id="confirmMessage"></p>
+      </div>
+      <div class="confirm-actions">
+        <button class="btn ghost" type="button" data-confirm-cancel>{{ t('取消') }}</button>
+        <button id="confirmAccept" class="btn danger" type="button">{{ t('确认') }}</button>
+      </div>
+    </div>
+  </div>
+
+  <script data-cfasync="false">
+    window.APP_LANG = {{ lang|tojson }};
+    window.APP_BUILD_SHA = {{ (config.get('BUILD_SHA') or 'dev')|tojson }};
+    window.APP_MAX_IMAGE_MB = {{ config['MAX_IMAGE_SIZE_MB'] }};
+    window.APP_MAX_IMPORT_MB = {{ config['MAX_IMPORT_SIZE_MB'] }};
+    window.APP_CAN_MANAGE = {{ 'true' if can_manage else 'false' }};
+    window.APP_AUTHENTICATED = {{ 'true' if is_authenticated else 'false' }};
+    window.APP_AUTH_MODE = {{ auth_mode|tojson }};
+    window.APP_URLS = {
+      newPrompt: {{ url_for('new_prompt')|tojson }},
+      settings: {{ url_for('settings')|tojson }},
+      home: {{ url_for('index')|tojson }},
+      favorites: {{ url_for('index', view='favorites')|tojson }},
+      search: {{ url_for('api_search')|tojson }},
+      tags: {{ url_for('api_tags')|tojson }},
+      detail: {{ url_for('prompt_detail', prompt_id=0)|tojson }}.replace(/0$/, '')
+    };
+  </script>
+  <script data-cfasync="false" src="{{ url_for('static', filename='js/main.js', v=(config.get('BUILD_SHA') or 'dev')) }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
