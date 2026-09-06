@@ -8,7 +8,7 @@ exactly once, so the process fails fast on misconfiguration (e.g. a missing
 SECRET_KEY in production) instead of starting in a broken state.
 """
 
-from app import app
+from promptmanage import app
 
 # Expose the WSGI callable under the conventional name.
 application = app

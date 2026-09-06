@@ -1,8 +1,39 @@
+/* detail.js — the reader view and the editor. */
 (function () {
   "use strict";
 
-  const language = window.APP_LANG || "zh";
-  const translate = (zh, en) => (language === "en" ? en : zh);
+  const tr = window.tr || ((zh) => zh);
+
+  // --- Reader ---------------------------------------------------------------
+  (function reader() {
+    const rendered = document.getElementById("readerRendered_body");
+    const raw = document.getElementById("readerRaw_body");
+    if (!rendered || !raw) return;
+
+    const source = raw.textContent || "";
+    rendered.innerHTML = window.renderMarkdown(source);
+    const counter = document.getElementById("readerCharCount");
+    if (counter) counter.textContent = source.length.toLocaleString();
+
+    function setMode(mode) {
+      const showRaw = mode === "raw";
+      raw.hidden = !showRaw;
+      rendered.hidden = showRaw;
+      document.querySelectorAll("[data-reader-mode]").forEach((button) => {
+        button.setAttribute("aria-pressed", button.dataset.readerMode === mode ? "true" : "false");
+      });
+      try { localStorage.setItem("readerMode", mode); } catch (error) { /* not persisted */ }
+    }
+
+    document.querySelectorAll("[data-reader-mode]").forEach((button) => {
+      button.addEventListener("click", () => setMode(button.dataset.readerMode));
+    });
+    let stored = null;
+    try { stored = localStorage.getItem("readerMode"); } catch (error) { /* ignore */ }
+    setMode(stored === "raw" ? "raw" : "rendered");
+  })();
+
+  // --- Editor ---------------------------------------------------------------
   const form = document.getElementById("promptForm");
   if (!form) return;
 
@@ -15,91 +46,44 @@
 
   const saveVersionToggle = document.getElementById("saveVersionToggle");
   const bumpSelect = document.getElementById("bump_kind");
-  function syncBumpSelect() {
-    if (!saveVersionToggle || !bumpSelect) return;
-    bumpSelect.disabled = !saveVersionToggle.checked;
-  }
   if (saveVersionToggle && bumpSelect) {
-    syncBumpSelect();
-    saveVersionToggle.addEventListener("change", syncBumpSelect);
+    const sync = () => { bumpSelect.disabled = !saveVersionToggle.checked; };
+    saveVersionToggle.addEventListener("change", sync);
+    sync();
   }
 
   function updateCounter() {
-    if (counter && contentInput) counter.textContent = contentInput.value.length + " " + translate("字符", "chars");
+    if (counter && contentInput) {
+      counter.textContent = contentInput.value.length.toLocaleString() + " " + tr("字符", "chars");
+    }
   }
   updateCounter();
   contentInput?.addEventListener("input", updateCounter);
 
-  function serializeForm() {
-    const parts = [];
-    for (const [key, value] of new FormData(form).entries()) {
-      if (key === "_csrf_token") continue;
-      if (key === "image_file") {
-        parts.push(key + "=" + (value?.name ? value.name + ":" + value.size : ""));
-      } else {
-        parts.push(key + "=" + (typeof value === "string" ? value : ""));
-      }
-    }
-    return parts.join("&");
+  function snapshot() {
+    return Array.from(new FormData(form).entries())
+      .filter(([key]) => key !== "_csrf_token")
+      .map(([key, value]) => key + "=" + (typeof value === "string" ? value : ""))
+      .join("&");
   }
-  let initialState = serializeForm();
+  let initialState = snapshot();
   function checkDirty() {
-    const dirty = serializeForm() !== initialState;
+    const dirty = snapshot() !== initialState;
     if (dirtyFlag) dirtyFlag.hidden = !dirty;
     return dirty;
   }
   form.addEventListener("input", checkDirty);
   form.addEventListener("change", checkDirty);
   window.addEventListener("beforeunload", (event) => {
-    if (!submitting && checkDirty()) {
-      event.preventDefault();
-      event.returnValue = "";
-    }
+    if (!submitting && checkDirty()) { event.preventDefault(); event.returnValue = ""; }
   });
 
   document.getElementById("copyBtn")?.addEventListener("click", async () => {
     const content = contentInput?.value || "";
-    if (!content.trim()) {
-      window.toast(translate("没有内容可复制", "No content to copy"), "error");
-      return;
-    }
+    if (!content.trim()) { window.toast(tr("没有内容可复制", "No content to copy"), "error"); return; }
     const copied = await window.copyText(content);
-    window.toast(copied ? translate("已复制", "Copied") : translate("复制失败", "Copy failed"), copied ? "success" : "error");
+    window.toast(copied ? tr("已复制", "Copied") : tr("复制失败", "Copy failed"), copied ? "success" : "error");
   });
-
-  document.getElementById("clearBtn")?.addEventListener("click", async () => {
-    const accepted = await window.confirmAction(
-      translate("确定要清空内容吗？此操作不可撤销。", "Clear the content? This cannot be undone."),
-      { title: translate("清空内容", "Clear content") }
-    );
-    if (!accepted) return;
-    contentInput.value = "";
-    updateCounter();
-    checkDirty();
-    contentInput.focus();
-  });
-
-  function escapeHtml(value) {
-    return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-  function renderMarkdown(source) {
-    const codeBlocks = [];
-    let output = escapeHtml(source).replace(/```([\s\S]*?)```/g, (match, code) => {
-      codeBlocks.push("<pre><code>" + code.replace(/^\n/, "") + "</code></pre>");
-      return "__PM_CODE_" + (codeBlocks.length - 1) + "__";
-    });
-    output = output
-      .replace(/^###\s+(.*)$/gm, "<h3>$1</h3>")
-      .replace(/^##\s+(.*)$/gm, "<h2>$1</h2>")
-      .replace(/^#\s+(.*)$/gm, "<h1>$1</h1>")
-      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)"'<>]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-      .replace(/\n{2,}/g, "</p><p>")
-      .replace(/\n/g, "<br>");
-    output = "<p>" + output + "</p>";
-    return output.replace(/__PM_CODE_(\d+)__/g, (match, index) => codeBlocks[Number(index)] || "");
-  }
 
   const previewButton = document.getElementById("previewToggle");
   const preview = document.getElementById("contentPreview");
@@ -108,120 +92,50 @@
     if (showing) {
       preview.hidden = true;
       contentInput.hidden = false;
-      previewButton.setAttribute("aria-pressed", "false");
-      previewButton.setAttribute("aria-label", translate("预览", "Preview"));
+      contentInput.focus();
     } else {
-      preview.innerHTML = renderMarkdown(contentInput.value || "");
+      preview.innerHTML = window.renderMarkdown(contentInput.value || "");
       preview.hidden = false;
       contentInput.hidden = true;
-      previewButton.setAttribute("aria-pressed", "true");
-      previewButton.setAttribute("aria-label", translate("返回编辑", "Back to editing"));
     }
+    previewButton.setAttribute("aria-pressed", showing ? "false" : "true");
+    previewButton.setAttribute("aria-label", showing ? tr("预览", "Preview") : tr("返回编辑", "Back to editing"));
   });
 
-  const deleteButton = document.getElementById("deleteBtn");
   const deleteForm = document.getElementById("deleteForm");
-  deleteButton?.addEventListener("click", async () => {
+  document.getElementById("deleteBtn")?.addEventListener("click", async () => {
     const accepted = await window.confirmAction(
-      translate("确定要删除该提示词及其所有版本吗？此操作不可恢复。", "Delete this prompt and all versions? This cannot be undone."),
-      { title: translate("删除提示词", "Delete prompt"), acceptLabel: translate("删除", "Delete") }
+      tr("确定要删除该提示词及其所有版本吗？此操作不可恢复。",
+         "Delete this prompt and all its versions? This cannot be undone."),
+      { title: tr("删除提示词", "Delete prompt"), acceptLabel: tr("删除", "Delete") }
     );
-    if (accepted) {
-      submitting = true;
-      deleteForm.submit();
-    }
+    if (!accepted) return;
+    submitting = true;
+    deleteForm.submit();
   });
-
-  const imageInput = document.getElementById("image_file");
-  const dropzone = document.getElementById("coverDropzone");
-  const selectedPreview = document.getElementById("selectedImagePreview");
-  let previewReadId = 0;
-
-  function validateImage(file) {
-    if (!file) return false;
-    const supported = ["image/jpeg", "image/png", "image/webp"];
-    const maxMegabytes = Number(window.APP_MAX_IMAGE_MB) || 5;
-    if (!supported.includes(file.type)) {
-      window.toast(translate("仅支持 jpg、png、webp 图片", "Only jpg, png, and webp images are supported"), "error");
-      return false;
-    }
-    if (file.size > maxMegabytes * 1024 * 1024) {
-      window.toast(translate("图片大小不能超过 " + maxMegabytes + "MB", "Image must be smaller than " + maxMegabytes + "MB"), "error");
-      return false;
-    }
-    return true;
-  }
-
-  function showSelectedImage(file) {
-    if (!selectedPreview || !file) return;
-    const image = selectedPreview.querySelector("img");
-    const readId = ++previewReadId;
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      if (readId !== previewReadId || typeof reader.result !== "string") return;
-      image.src = reader.result;
-      selectedPreview.hidden = false;
-    });
-    reader.addEventListener("error", () => {
-      if (readId !== previewReadId) return;
-      image.removeAttribute("src");
-      selectedPreview.hidden = true;
-      window.toast(translate("无法预览所选图片", "Unable to preview the selected image"), "error");
-    });
-    reader.readAsDataURL(file);
-  }
-
-  imageInput?.addEventListener("change", () => {
-    const file = imageInput.files?.[0];
-    if (!file) return;
-    if (!validateImage(file)) {
-      previewReadId += 1;
-      imageInput.value = "";
-      selectedPreview.querySelector("img")?.removeAttribute("src");
-      selectedPreview.hidden = true;
-      return;
-    }
-    showSelectedImage(file);
-  });
-
-  if (dropzone && imageInput) {
-    ["dragenter", "dragover"].forEach((eventName) => dropzone.addEventListener(eventName, (event) => {
-      event.preventDefault();
-      dropzone.classList.add("dragging");
-    }));
-    ["dragleave", "drop"].forEach((eventName) => dropzone.addEventListener(eventName, (event) => {
-      event.preventDefault();
-      dropzone.classList.remove("dragging");
-    }));
-    dropzone.addEventListener("drop", (event) => {
-      const file = event.dataTransfer?.files?.[0];
-      if (!validateImage(file)) return;
-      const transfer = new DataTransfer();
-      transfer.items.add(file);
-      imageInput.files = transfer.files;
-      imageInput.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-  }
 
   form.addEventListener("submit", (event) => {
     if (submitting) { event.preventDefault(); return; }
     if (!nameInput.value.trim() || !contentInput.value.trim()) {
       event.preventDefault();
+      const missingName = !nameInput.value.trim();
       window.toast(
-        !nameInput.value.trim() ? translate("请输入提示词名称", "Please enter a prompt name") : translate("请输入提示词内容", "Please enter prompt content"),
+        missingName ? tr("请输入提示词名称", "Please enter a prompt name")
+                    : tr("请输入提示词内容", "Please enter prompt content"),
         "error"
       );
+      (missingName ? nameInput : contentInput).focus();
       return;
     }
     submitting = true;
     if (saveButton) {
-      const originalMarkup = saveButton.innerHTML;
       saveButton.disabled = true;
-      saveButton.textContent = translate("保存中...", "Saving...");
+      saveButton.setAttribute("aria-busy", "true");
+      // Re-enable if the navigation never happens (e.g. the browser blocks it).
       setTimeout(() => {
         submitting = false;
         saveButton.disabled = false;
-        saveButton.innerHTML = originalMarkup;
+        saveButton.removeAttribute("aria-busy");
       }, 8000);
     }
   });
@@ -233,22 +147,54 @@
     }
   });
 
-  (function initializeTagEditor() {
-    const hiddenInput = document.getElementById("tags");
-    const entry = document.getElementById("tagEntry");
-    const chipList = document.getElementById("tagChips");
-    const editor = document.getElementById("tagEditor");
-    if (!hiddenInput || !entry || !chipList || !editor) return;
+  // --- Colour ---------------------------------------------------------------
+  (function colorField() {
+    const text = document.getElementById("color");
+    if (!text) return;
+    const presets = Array.from(document.querySelectorAll(".color-preset"));
+    const expand = (value) => {
+      const raw = (value || "").trim();
+      if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(raw)) return "";
+      return (raw.length === 4
+        ? "#" + raw.slice(1).split("").map((c) => c + c).join("")
+        : raw).toLowerCase();
+    };
+    const paint = () => {
+      const color = expand(text.value);
+      text.classList.toggle("color-invalid", Boolean(text.value.trim()) && !color);
+      presets.forEach((button) => button.classList.toggle("active", expand(button.dataset.color) === color));
+    };
+    text.addEventListener("input", paint);
+    presets.forEach((button) => button.addEventListener("click", () => {
+      const next = expand(button.dataset.color);
+      text.value = text.value.trim().toLowerCase() === next ? "" : next;
+      paint();
+      checkDirty();
+    }));
+    document.getElementById("colorClearBtn")?.addEventListener("click", () => {
+      text.value = "";
+      paint();
+      checkDirty();
+    });
+    paint();
+  })();
 
-    let tags = hiddenInput.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean);
+  // --- Tag editor -----------------------------------------------------------
+  (function tagEditor() {
+    const hidden = document.getElementById("tags");
+    const entry = document.getElementById("tagEntry");
+    const chips = document.getElementById("tagChips");
+    const editor = document.getElementById("tagEditor");
+    if (!hidden || !entry || !chips || !editor) return;
+
+    let tags = hidden.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean);
     let suggestions = [];
     let dropdown = null;
     let activeIndex = -1;
 
-    function syncTags(notify) {
-      hiddenInput.value = tags.join(", ");
-      chipList.replaceChildren();
-      tags.forEach((tag, index) => {
+    function sync(notify) {
+      hidden.value = tags.join(", ");
+      chips.replaceChildren(...tags.map((tag, index) => {
         const chip = document.createElement("span");
         chip.className = "editable-tag";
         const label = document.createElement("span");
@@ -256,25 +202,16 @@
         const remove = document.createElement("button");
         remove.type = "button";
         remove.textContent = "×";
-        remove.setAttribute("aria-label", translate("删除标签 ", "Remove tag ") + tag);
+        remove.setAttribute("aria-label", tr("删除标签 ", "Remove tag ") + tag);
         remove.addEventListener("click", () => {
           tags.splice(index, 1);
-          syncTags(true);
+          sync(true);
           entry.focus();
         });
         chip.append(label, remove);
-        chipList.appendChild(chip);
-      });
-      if (notify) hiddenInput.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-
-    function addTag(value) {
-      const tag = value.trim().replace(/^[,，]+|[,，]+$/g, "");
-      if (!tag || tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())) return;
-      tags.push(tag);
-      entry.value = "";
-      closeSuggestions();
-      syncTags(true);
+        return chip;
+      }));
+      if (notify) { hidden.dispatchEvent(new Event("input", { bubbles: true })); checkDirty(); }
     }
 
     function closeSuggestions() {
@@ -285,16 +222,26 @@
       entry.removeAttribute("aria-activedescendant");
     }
 
-    function chooseSuggestion(tag) {
-      addTag(tag);
-      entry.focus();
+    function addTag(value) {
+      const tag = value.trim().replace(/^[,，]+|[,，]+$/g, "");
+      if (!tag || tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())) {
+        entry.value = "";
+        closeSuggestions();
+        return;
+      }
+      tags.push(tag);
+      entry.value = "";
+      closeSuggestions();
+      sync(true);
     }
 
     function renderSuggestions() {
-      const query = entry.value.trim().toLowerCase();
+      const needle = entry.value.trim().toLowerCase();
       closeSuggestions();
-      if (!query) return;
-      const matches = suggestions.filter((tag) => !tags.includes(tag) && tag.toLowerCase().includes(query)).slice(0, 6);
+      if (!needle) return;
+      const matches = suggestions
+        .filter((tag) => !tags.includes(tag) && tag.toLowerCase().includes(needle))
+        .slice(0, 6);
       if (!matches.length) return;
       dropdown = document.createElement("div");
       dropdown.id = "tagSuggestions";
@@ -306,14 +253,14 @@
         option.className = "tag-suggestion";
         option.setAttribute("role", "option");
         option.textContent = tag;
-        option.addEventListener("mousedown", (event) => { event.preventDefault(); chooseSuggestion(tag); });
+        option.addEventListener("mousedown", (event) => { event.preventDefault(); addTag(tag); entry.focus(); });
         dropdown.appendChild(option);
       });
       editor.appendChild(dropdown);
       entry.setAttribute("aria-expanded", "true");
     }
 
-    function moveSuggestion(direction) {
+    function move(direction) {
       if (!dropdown?.children.length) return;
       activeIndex = (activeIndex + direction + dropdown.children.length) % dropdown.children.length;
       Array.from(dropdown.children).forEach((option, index) => option.classList.toggle("active", index === activeIndex));
@@ -325,28 +272,27 @@
       else renderSuggestions();
     });
     entry.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowDown") { event.preventDefault(); moveSuggestion(1); }
-      else if (event.key === "ArrowUp") { event.preventDefault(); moveSuggestion(-1); }
+      if (event.key === "ArrowDown") { event.preventDefault(); move(1); }
+      else if (event.key === "ArrowUp") { event.preventDefault(); move(-1); }
       else if (event.key === "Enter") {
         event.preventDefault();
-        if (activeIndex >= 0 && dropdown) chooseSuggestion(dropdown.children[activeIndex].textContent);
+        if (activeIndex >= 0 && dropdown) addTag(dropdown.children[activeIndex].textContent);
         else addTag(entry.value);
       } else if (event.key === "Backspace" && !entry.value && tags.length) {
         tags.pop();
-        syncTags(true);
-      } else if (event.key === "Escape") closeSuggestions();
+        sync(true);
+      } else if (event.key === "Escape") {
+        closeSuggestions();
+      }
     });
-    entry.addEventListener("blur", () => setTimeout(() => {
-      addTag(entry.value);
-      closeSuggestions();
-    }, 120));
+    entry.addEventListener("blur", () => setTimeout(() => { addTag(entry.value); closeSuggestions(); }, 120));
 
-    fetch(window.APP_URLS.tags, { credentials: "same-origin" })
-      .then((response) => response.ok ? response.json() : [])
+    fetch(window.APP.urls.tags, { credentials: "same-origin" })
+      .then((response) => (response.ok ? response.json() : []))
       .then((items) => { suggestions = Array.isArray(items) ? items : []; })
-      .catch(() => {});
+      .catch(() => { /* suggestions are optional */ });
 
-    syncTags(false);
-    initialState = serializeForm();
+    sync(false);
+    initialState = snapshot();
   })();
 })();

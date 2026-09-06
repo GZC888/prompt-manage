@@ -1,5 +1,10 @@
-"""Pytest fixtures: a fresh, isolated SQLite database per test."""
-import importlib
+"""Pytest fixtures: a fresh, isolated application per test.
+
+Configuration is read at import time, so isolation means dropping the whole
+``promptmanage`` package from ``sys.modules`` and importing it again against a
+throwaway database.
+"""
+
 import os
 import sys
 
@@ -12,7 +17,6 @@ if ROOT not in sys.path:
 
 @pytest.fixture
 def appmod(tmp_path, monkeypatch):
-    """Reload the app against a throwaway database for full isolation."""
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.sqlite3"))
     monkeypatch.setenv("SECRET_KEY", "test-secret-key-0123456789abcdef")
     monkeypatch.setenv("APP_ENV", "testing")
@@ -20,8 +24,10 @@ def appmod(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTH_LOGIN_MAX_ATTEMPTS", "10")
     monkeypatch.setenv("AUTH_LOGIN_WINDOW_SECONDS", "900")
     monkeypatch.setenv("AUTH_LOCK_SECONDS", "900")
+    for name in [n for n in list(sys.modules) if n == "app" or n == "promptmanage" or n.startswith("promptmanage.")]:
+        del sys.modules[name]
     import app as app_module
-    importlib.reload(app_module)
+
     app_module.app.config.update(TESTING=True)
     return app_module
 

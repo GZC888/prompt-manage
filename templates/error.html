@@ -1,0 +1,14 @@
+{% extends 'layout.html' %}
+{% from '_icons.html' import icon %}
+{% set titles = {403: '没有访问权限', 404: '页面不存在'} %}
+{% set hints = {403: '当前身份无法执行该操作，登录后再试一次。', 404: '这个地址下没有内容，它可能已被删除或改名。'} %}
+{% block title %}{{ code }} - {{ t('Prompt 管理器') }}{% endblock %}
+{% block content %}
+  <div class="empty-state page-error">
+    <div class="empty-icon">{{ icon('alert') }}</div>
+    <p class="error-code">{{ code }}</p>
+    <h1>{{ t(titles.get(code, '出错了')) }}</h1>
+    <p>{{ t(hints.get(code, '请稍后重试。')) }}</p>
+    <a class="btn primary" href="{{ url_for('index') }}">{{ icon('home') }} {{ t('返回提示词库') }}</a>
+  </div>
+{% endblock %}

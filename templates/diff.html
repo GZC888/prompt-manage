@@ -3,29 +3,33 @@
 {% block title %}{{ t('版本对比') }} - {{ prompt['name'] }} - {{ t('Prompt 管理器') }}{% endblock %}
 {% block content %}
   <div class="diff-page">
-    <header class="detail-header diff-page-header">
+    <header class="detail-header">
       <div class="detail-title-group">
         <a class="back-link" href="{{ url_for('versions_page', prompt_id=prompt['id']) }}">{{ icon('arrow-left') }} {{ t('返回版本历史') }}</a>
-        <p class="eyebrow">{{ prompt['name'] }}</p>
         <h1>{{ t('版本对比') }}</h1>
-        <p>{{ t('检查两个版本之间新增、删除和修改的内容。') }}</p>
+        <p class="library-subtitle">{{ prompt['name'] }}</p>
       </div>
     </header>
 
     <form method="get" class="diff-toolbar" action="{{ url_for('diff_view', prompt_id=prompt['id']) }}" aria-label="{{ t('对比选项') }}">
-      <div class="field"><label for="diffLeft">{{ t('旧版本') }}</label><select id="diffLeft" name="left">{% for version in versions %}<option value="{{ version['id'] }}" {% if left and version['id'] == left['id'] %}selected{% endif %}>{{ version['version'] }} · {{ version['created_at']|ts }}</option>{% endfor %}</select></div>
+      <div class="field">
+        <label for="diffLeft">{{ t('旧版本') }}</label>
+        <select id="diffLeft" name="left">{% for version in versions %}<option value="{{ version['id'] }}" {% if version['id'] == left['id'] %}selected{% endif %}>{{ version['version'] }} · {{ version['created_at']|ts(16) }}</option>{% endfor %}</select>
+      </div>
       <span class="diff-direction" aria-hidden="true">{{ icon('arrow-right') }}</span>
-      <div class="field"><label for="diffRight">{{ t('新版本') }}</label><select id="diffRight" name="right">{% for version in versions %}<option value="{{ version['id'] }}" {% if right and version['id'] == right['id'] %}selected{% endif %}>{{ version['version'] }} · {{ version['created_at']|ts }}</option>{% endfor %}</select></div>
-      <div class="field mode-field"><label for="diffMode">{{ t('对比方式') }}</label><select id="diffMode" name="mode"><option value="word" {% if mode == 'word' %}selected{% endif %}>{{ t('词级') }}</option><option value="line" {% if mode == 'line' %}selected{% endif %}>{{ t('行级') }}</option></select></div>
+      <div class="field">
+        <label for="diffRight">{{ t('新版本') }}</label>
+        <select id="diffRight" name="right">{% for version in versions %}<option value="{{ version['id'] }}" {% if version['id'] == right['id'] %}selected{% endif %}>{{ version['version'] }} · {{ version['created_at']|ts(16) }}</option>{% endfor %}</select>
+      </div>
       <button class="btn primary" type="submit">{{ icon('compare') }} {{ t('更新对比') }}</button>
     </form>
 
     <section class="diff-workspace" aria-label="{{ t('版本差异') }}">
       <div class="diff-header">
-        <div><span class="diff-dot old-dot"></span><strong>{{ t('旧版本') }} {{ left['version'] }}</strong><time>{{ left['created_at']|ts }}</time></div>
-        <div><span class="diff-dot new-dot"></span><strong>{{ t('新版本') }} {{ right['version'] }}</strong><time>{{ right['created_at']|ts }}</time></div>
+        <div><span class="diff-dot old-dot"></span><strong>{{ left['version'] }}</strong><time>{{ left['created_at']|ts(16) }}</time></div>
+        <div><span class="diff-dot new-dot"></span><strong>{{ right['version'] }}</strong><time>{{ right['created_at']|ts(16) }}</time></div>
       </div>
-      <div class="diff-container">{{ diff_html|safe }}</div>
+      <div class="diff-container">{{ diff_html }}</div>
     </section>
   </div>
 {% endblock %}

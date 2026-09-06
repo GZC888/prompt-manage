@@ -40,16 +40,29 @@ jobs:
         run: python -m pytest -q
 
       - name: Run Ruff
-        run: ruff check app.py i18n.py wsgi.py gunicorn.conf.py tests
+        run: ruff check app.py wsgi.py gunicorn.conf.py promptmanage tests
 
       - name: Check Python syntax
-        run: python -m py_compile app.py i18n.py wsgi.py gunicorn.conf.py
+        run: python -m compileall -q app.py wsgi.py gunicorn.conf.py promptmanage
 
       - name: Check JavaScript syntax
         run: for file in static/js/*.js; do node --check "$file"; done
 
       - name: Check entrypoint syntax
         run: sh -n docker-entrypoint.sh
+
+      - name: Check template syntax
+        env:
+          APP_ENV: testing
+          SECRET_KEY: ci-only-secret-0123456789abcdef0123456789abcdef
+          DB_PATH: /tmp/ci-template-check.sqlite3
+        run: |
+          python - <<'EOF'
+          from promptmanage import app
+          for name in app.jinja_env.list_templates():
+              app.jinja_env.get_template(name)
+          print(f"{len(app.jinja_env.list_templates())} templates compile")
+          EOF
 
       - name: Validate Compose configuration
         env:

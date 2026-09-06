@@ -1,22 +1,25 @@
-/* main.js — global helpers shared by every page.
-   Intentionally minimal: toasts, csrfFetch, copy, theme toggle, command
-   palette, color picker, confirm-forms. No JS-driven hover transforms,
-   ripples, scroll observers, or blanket submit-loading. */
+/* main.js — shared behaviour for every page.
+   Deliberately small: toasts, csrfFetch, clipboard, theme, a confirm dialog,
+   a Markdown renderer and the command palette. No scroll observers, no
+   hover animation, no blanket submit-loading. */
 (function () {
   "use strict";
 
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const LANG = window.APP_LANG || "zh";
-  const tr = (zh, en) => (LANG === "en" ? en : zh);
+  const APP = window.APP || (window.APP = { lang: "zh", urls: {} });
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const tr = (zh, en) => (APP.lang === "en" ? en : zh);
+  window.tr = tr;
 
-  function csrfToken() {
-    const m = document.querySelector('meta[name="csrf-token"]');
-    return m ? m.getAttribute("content") : "";
-  }
+  const csrfToken = () => $('meta[name="csrf-token"]')?.getAttribute("content") || "";
 
   // --- Toasts --------------------------------------------------------------
-  function ensureToastRoot() {
+  function dismissToast(el) {
+    el.classList.add("hide");
+    setTimeout(() => el.remove(), 200);
+  }
+
+  function toast(message, type = "info", timeout = 4000) {
     let root = $("#toastRoot");
     if (!root) {
       root = document.createElement("div");
@@ -24,131 +27,120 @@
       root.className = "toast-root";
       document.body.appendChild(root);
     }
-    return root;
-  }
-
-  function dismissToast(el) {
-    el.classList.add("hide");
-    setTimeout(() => el.remove(), 220);
-  }
-
-  function toast(message, type = "info", timeout = 4000) {
-    const root = ensureToastRoot();
     const el = document.createElement("div");
     el.className = "toast " + type;
     el.setAttribute("role", type === "error" ? "alert" : "status");
-    el.setAttribute("aria-live", type === "error" ? "assertive" : "polite");
-    const span = document.createElement("span");
-    span.className = "toast-msg";
-    span.textContent = message; // textContent: never inject HTML
+    const text = document.createElement("span");
+    text.className = "toast-msg";
+    text.textContent = message; // textContent: never inject HTML
     const close = document.createElement("button");
     close.className = "toast-close";
     close.type = "button";
     close.setAttribute("aria-label", tr("关闭", "Close"));
     close.textContent = "×";
     close.addEventListener("click", () => dismissToast(el));
-    el.appendChild(span);
-    el.appendChild(close);
+    el.append(text, close);
     root.appendChild(el);
     if (timeout) setTimeout(() => dismissToast(el), timeout);
     return el;
   }
   window.toast = toast;
 
-  // Wire up server-rendered toasts (auto-dismiss + close button).
-  $$("#toastRoot .toast").forEach((el, i) => {
-    const close = el.querySelector(".toast-close");
-    if (close) close.addEventListener("click", () => dismissToast(el));
-    setTimeout(() => dismissToast(el), 4500 + i * 400);
+  $$("#toastRoot .toast").forEach((el, index) => {
+    el.querySelector(".toast-close")?.addEventListener("click", () => dismissToast(el));
+    setTimeout(() => dismissToast(el), 4500 + index * 400);
   });
 
-  // --- csrfFetch -----------------------------------------------------------
+  // --- Fetch with CSRF -----------------------------------------------------
   function csrfFetch(url, options = {}) {
-    const opts = Object.assign({ method: "POST", credentials: "same-origin" }, options);
-    opts.headers = Object.assign({ "X-CSRF-Token": csrfToken() }, options.headers || {});
-    return fetch(url, opts);
+    return fetch(url, Object.assign({ method: "POST", credentials: "same-origin" }, options, {
+      headers: Object.assign({ "X-CSRF-Token": csrfToken() }, options.headers || {}),
+    }));
   }
   window.csrfFetch = csrfFetch;
 
   // --- Clipboard -----------------------------------------------------------
   async function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) {
-      try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall through */ }
+      try { await navigator.clipboard.writeText(text); return true; } catch (error) { /* fall through */ }
     }
+    // execCommand is deprecated but remains the only fallback over plain HTTP.
     try {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.top = "-1000px";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.cssText = "position:fixed;top:-1000px";
+      document.body.appendChild(area);
+      area.select();
       const ok = document.execCommand("copy");
-      document.body.removeChild(ta);
+      area.remove();
       return ok;
-    } catch (e) { return false; }
+    } catch (error) { return false; }
   }
   window.copyText = copyText;
 
-  // Delegate copy buttons (cards, version list, ...).
-  document.addEventListener("click", async (e) => {
-    const btn = e.target.closest(".js-copy");
-    if (!btn) return;
-    let text = btn.getAttribute("data-content") || "";
-    const copyUrl = btn.getAttribute("data-copy-url");
-    if (!text && copyUrl) {
-      btn.disabled = true;
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest(".js-copy");
+    if (!button) return;
+    let text = button.getAttribute("data-content") || "";
+    const url = button.getAttribute("data-copy-url");
+    if (!text && url) {
+      button.disabled = true;
       try {
-        const response = await fetch(copyUrl, { credentials: "same-origin", headers: { "Accept": "application/json" } });
+        const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
         if (!response.ok) throw new Error("copy fetch failed");
-        const data = await response.json();
-        text = typeof data.content === "string" ? data.content : "";
+        text = (await response.json()).content || "";
       } catch (error) {
         toast(tr("读取内容失败", "Failed to load content"), "error");
-        btn.disabled = false;
         return;
+      } finally {
+        button.disabled = false;
       }
-      btn.disabled = false;
     }
     if (!text) { toast(tr("没有内容可复制", "No content to copy"), "error"); return; }
     const ok = await copyText(text);
     toast(ok ? tr("已复制", "Copied") : tr("复制失败", "Copy failed"), ok ? "success" : "error");
-    const pid = btn.getAttribute("data-prompt-id");
-    if (ok && pid) {
-      csrfFetch(window.APP_URLS.detail + pid + "/copied").catch(() => {});
-    }
   });
 
-  // --- Theme toggle --------------------------------------------------------
-  function effectiveTheme() {
-    const m = (() => { try { return localStorage.getItem("theme"); } catch (e) { return null; } })();
-    if (m === "light" || m === "dark") return m;
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  }
-  function applyTheme(theme) {
-    const d = document.documentElement;
-    if (theme === "light" || theme === "dark") {
-      try { localStorage.setItem("theme", theme); } catch (e) {}
-      d.setAttribute("data-theme", theme);
-    } else {
-      try { localStorage.removeItem("theme"); } catch (e) {}
-      d.removeAttribute("data-theme");
-    }
-  }
-  const themeButtons = $$("#themeToggle, #themeToggleAuth");
-  if (themeButtons.length) {
-    const syncThemeState = () => themeButtons.forEach((button) => button.setAttribute("aria-pressed", effectiveTheme() === "dark" ? "true" : "false"));
-    syncThemeState();
-    themeButtons.forEach((button) => button.addEventListener("click", () => {
-      applyTheme(effectiveTheme() === "dark" ? "light" : "dark");
-      syncThemeState();
-    }));
-  }
+  // --- Theme: light -> dark -> follow system --------------------------------
+  const readTheme = () => { try { return localStorage.getItem("theme"); } catch (e) { return null; } };
+  const systemDark = () => window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  const effectiveTheme = () => {
+    const stored = readTheme();
+    return stored === "light" || stored === "dark" ? stored : (systemDark() ? "dark" : "light");
+  };
 
-  // --- Product confirmation dialog ----------------------------------------
+  function applyTheme(mode) {
+    try {
+      if (mode === "light" || mode === "dark") localStorage.setItem("theme", mode);
+      else localStorage.removeItem("theme");
+    } catch (error) { /* private mode: the choice just will not persist */ }
+    document.documentElement.setAttribute("data-theme", mode === "light" || mode === "dark" ? mode : "auto");
+    syncThemeButtons();
+  }
+  window.applyTheme = applyTheme;
+
+  const themeButtons = $$("#themeToggle, #themeToggleAuth");
+  function syncThemeButtons() {
+    const stored = readTheme() || "auto";
+    themeButtons.forEach((button) => {
+      button.setAttribute("aria-pressed", effectiveTheme() === "dark" ? "true" : "false");
+      button.setAttribute("title", themeLabel(stored));
+    });
+  }
+  const themeLabel = (mode) => mode === "light" ? tr("浅色主题", "Light theme")
+    : mode === "dark" ? tr("深色主题", "Dark theme")
+    : tr("跟随系统", "Follow system");
+
+  themeButtons.forEach((button) => button.addEventListener("click", () => {
+    const stored = readTheme();
+    const next = stored === "light" ? "dark" : stored === "dark" ? "auto" : "light";
+    applyTheme(next);
+    toast(themeLabel(next), "info", 1600);
+  }));
+  syncThemeButtons();
+
+  // --- Confirmation dialog -------------------------------------------------
   const confirmRoot = $("#confirmDialog");
-  const confirmTitle = $("#confirmTitle");
-  const confirmMessage = $("#confirmMessage");
   const confirmAccept = $("#confirmAccept");
   let confirmResolve = null;
   let confirmLastFocus = null;
@@ -156,26 +148,21 @@
   function closeConfirm(result) {
     if (!confirmRoot || confirmRoot.hidden) return;
     confirmRoot.hidden = true;
-    confirmRoot.setAttribute("aria-hidden", "true");
     document.body.classList.remove("modal-open");
     const resolve = confirmResolve;
     confirmResolve = null;
     if (confirmLastFocus?.isConnected) confirmLastFocus.focus({ preventScroll: true });
-    if (resolve) resolve(Boolean(result));
+    resolve?.(Boolean(result));
   }
 
   function confirmAction(message, options = {}) {
-    if (!confirmRoot || !confirmAccept || !confirmMessage || !confirmTitle) {
-      return Promise.resolve(window.confirm(message));
-    }
+    if (!confirmRoot || !confirmAccept) return Promise.resolve(window.confirm(message));
     if (confirmResolve) closeConfirm(false);
     confirmLastFocus = document.activeElement;
-    confirmTitle.textContent = options.title || tr("确认操作", "Confirm action");
-    confirmMessage.textContent = message || "";
+    $("#confirmTitle").textContent = options.title || tr("确认操作", "Confirm action");
+    $("#confirmMessage").textContent = message || "";
     confirmAccept.textContent = options.acceptLabel || tr("确认", "Confirm");
-    confirmAccept.classList.toggle("danger", options.danger !== false);
     confirmRoot.hidden = false;
-    confirmRoot.setAttribute("aria-hidden", "false");
     document.body.classList.add("modal-open");
     setTimeout(() => confirmAccept.focus(), 0);
     return new Promise((resolve) => { confirmResolve = resolve; });
@@ -184,209 +171,198 @@
 
   if (confirmRoot && confirmAccept) {
     confirmAccept.addEventListener("click", () => closeConfirm(true));
-    $$('[data-confirm-cancel]', confirmRoot).forEach((button) => button.addEventListener("click", () => closeConfirm(false)));
+    $$("[data-confirm-cancel]", confirmRoot).forEach((el) => el.addEventListener("click", () => closeConfirm(false)));
     confirmRoot.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { event.preventDefault(); closeConfirm(false); }
-      if (event.key !== "Tab") return;
-      const focusable = $$('button:not([disabled])', confirmRoot);
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      if (event.key === "Escape") { event.preventDefault(); closeConfirm(false); return; }
+      trapFocus(event, confirmRoot);
     });
   }
 
   document.addEventListener("submit", async (event) => {
     const form = event.target.closest("form[data-confirm]");
-    if (!form) return;
+    if (!form || form.dataset.confirmed === "1") return;
     event.preventDefault();
     const accepted = await confirmAction(form.getAttribute("data-confirm"), {
       title: form.getAttribute("data-confirm-title") || undefined,
     });
-    if (accepted) form.submit();
+    if (!accepted) return;
+    form.dataset.confirmed = "1";
+    form.submit();
   }, true);
 
-  // --- Color picker (detail page) -----------------------------------------
-  (function colorPicker() {
-    const text = $("#color");
-    const picker = $("#colorPicker");
-    const swatch = $("#colorSwatch");
-    const clearBtn = $("#colorClearBtn");
-    const presets = $$(".color-preset");
-    if (!text || !picker || !swatch) return;
-    if (text.readOnly || picker.disabled) return;
-    const valid = (s) => /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test((s || "").trim());
-    const expand = (s) => {
-      s = (s || "").trim();
-      if (!valid(s)) return "";
-      return s.length === 4 ? "#" + s.slice(1).split("").map((c) => c + c).join("").toLowerCase() : s.toLowerCase();
+  function trapFocus(event, container) {
+    if (event.key !== "Tab" || container.hidden) return;
+    const focusable = $$(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      container
+    ).filter((el) => !el.hidden && el.offsetParent !== null);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+  window.trapFocus = trapFocus;
+
+  // --- Markdown ------------------------------------------------------------
+  // A deliberately small subset (headings, lists, emphasis, code, links,
+  // quotes). Everything is escaped first, so the output can never carry markup
+  // that came from the prompt text itself.
+  const escapeHtml = (value) => value
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  function inlineMarkdown(text) {
+    return text
+      .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)"'<>]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  }
+
+  function renderMarkdown(source) {
+    const lines = escapeHtml(String(source || "")).split("\n");
+    const out = [];
+    let listType = null;
+    let paragraph = [];
+    let fence = null;
+
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      out.push("<p>" + inlineMarkdown(paragraph.join("<br>")) + "</p>");
+      paragraph = [];
     };
-    const paint = (v) => {
-      const color = expand(v);
-      swatch.style.background = color || "var(--surface)";
-      presets.forEach((button) => button.classList.toggle("active", expand(button.dataset.color) === color));
+    const closeList = () => {
+      if (listType) { out.push("</" + listType + ">"); listType = null; }
     };
-    paint(text.value);
-    picker.addEventListener("input", () => { text.value = picker.value.toLowerCase(); text.classList.remove("color-invalid"); paint(text.value); });
-    text.addEventListener("input", () => {
-      if (!text.value) { text.classList.remove("color-invalid"); paint(""); return; }
-      if (valid(text.value)) { text.classList.remove("color-invalid"); try { picker.value = expand(text.value); } catch (e) {} paint(text.value); }
-      else { text.classList.add("color-invalid"); }
+    const openList = (type) => {
+      if (listType !== type) { closeList(); out.push("<" + type + ">"); listType = type; }
+    };
+
+    for (const line of lines) {
+      const fenceMatch = /^\s*```(.*)$/.exec(line);
+      if (fenceMatch) {
+        if (fence === null) {
+          flushParagraph();
+          closeList();
+          fence = [];
+        } else {
+          out.push("<pre><code>" + fence.join("\n") + "</code></pre>");
+          fence = null;
+        }
+        continue;
+      }
+      if (fence !== null) { fence.push(line); continue; }
+
+      const heading = /^(#{1,4})\s+(.*)$/.exec(line);
+      if (heading) {
+        flushParagraph(); closeList();
+        const level = heading[1].length;
+        out.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+        continue;
+      }
+      const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+      if (bullet) {
+        flushParagraph(); openList("ul");
+        out.push("<li>" + inlineMarkdown(bullet[1]) + "</li>");
+        continue;
+      }
+      const ordered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+      if (ordered) {
+        flushParagraph(); openList("ol");
+        out.push("<li>" + inlineMarkdown(ordered[1]) + "</li>");
+        continue;
+      }
+      const quote = /^\s*&gt;\s?(.*)$/.exec(line);
+      if (quote) {
+        flushParagraph(); closeList();
+        out.push("<blockquote>" + inlineMarkdown(quote[1]) + "</blockquote>");
+        continue;
+      }
+      if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) {
+        flushParagraph(); closeList();
+        out.push("<hr>");
+        continue;
+      }
+      if (!line.trim()) { flushParagraph(); closeList(); continue; }
+      if (listType) closeList();
+      paragraph.push(line);
+    }
+    if (fence !== null) out.push("<pre><code>" + fence.join("\n") + "</code></pre>");
+    flushParagraph();
+    closeList();
+    return out.join("\n");
+  }
+  window.renderMarkdown = renderMarkdown;
+
+  // --- Import file pre-check (settings page) --------------------------------
+  const importInput = $('input[name="import_file"]');
+  if (importInput) {
+    importInput.addEventListener("change", () => {
+      const file = importInput.files?.[0];
+      if (!file) return;
+      const maxMb = Number(APP.maxImportMb) || 10;
+      if (!/\.json$/i.test(file.name || "")) {
+        importInput.value = "";
+        toast(tr("仅支持 .json 备份文件", "Only .json backups are supported"), "error");
+      } else if (file.size > maxMb * 1024 * 1024) {
+        importInput.value = "";
+        toast(tr(`文件过大：最大 ${maxMb}MB`, `File too large: maximum ${maxMb}MB`), "error");
+      }
     });
-    const open = () => { try { picker.showPicker ? picker.showPicker() : picker.click(); } catch (e) { picker.click(); } };
-    swatch.addEventListener("click", open);
-    swatch.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
-    if (clearBtn) clearBtn.addEventListener("click", () => {
-      text.value = "";
-      text.classList.remove("color-invalid");
-      paint("");
-      text.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    presets.forEach((button) => button.addEventListener("click", () => {
-      text.value = expand(button.dataset.color);
-      picker.value = text.value;
-      text.classList.remove("color-invalid");
-      paint(text.value);
-      text.dispatchEvent(new Event("input", { bubbles: true }));
-    }));
-  })();
+  }
 
   // --- Command palette -----------------------------------------------------
   (function commandPalette() {
     const root = $("#cmdk");
     const input = $("#cmdkInput");
     const list = $("#cmdkList");
-    const openBtn = $("#cmdkBtn");
-    const panel = root ? $(".cmdk-panel", root) : null;
     const status = $("#cmdkStatus");
-    if (!root || !input || !list || !panel || !status) return;
+    const openButton = $("#cmdkBtn");
+    if (!root || !input || !list || !status) return;
 
-    const globallyLocked = window.APP_AUTH_MODE === "global" && !window.APP_AUTHENTICATED;
-    const navigationActions = [
-      { label: tr("收藏", "Favorites"), hint: "", url: window.APP_URLS.favorites },
-      { label: tr("首页", "Home"), hint: "", url: window.APP_URLS.home },
+    const actions = [
+      { label: tr("新建提示词", "New prompt"), url: APP.urls.newPrompt },
+      { label: tr("提示词库", "Library"), url: APP.urls.home },
+      { label: tr("设置", "Settings"), url: APP.urls.settings },
+      { label: tr("切换主题", "Toggle theme"), run: () => applyTheme(effectiveTheme() === "dark" ? "light" : "dark") },
     ];
-    const utilityActions = [
-      { label: tr("切换主题", "Toggle theme"), hint: "", run: () => applyTheme(effectiveTheme() === "dark" ? "light" : "dark") },
-    ];
-    const protectedActions = [
-      { label: tr("新建提示词", "New prompt"), hint: "", url: window.APP_URLS.newPrompt },
-      { label: tr("设置", "Settings"), hint: "", url: window.APP_URLS.settings },
-    ];
-    const actions = (window.APP_CAN_MANAGE ? protectedActions : [])
-      .concat(globallyLocked ? [] : navigationActions)
-      .concat(utilityActions);
     let items = [];
     let active = -1;
-    let searchTimer = null;
-    let searchSeq = 0;
-    let searchController = null;
+    let timer = null;
+    let seq = 0;
+    let controller = null;
     let lastFocus = null;
 
-    function setStatus(message, state = "") {
+    function setStatus(message) {
       status.textContent = message || "";
       status.hidden = !message;
-      if (state) status.dataset.state = state;
-      else delete status.dataset.state;
     }
 
-    function setBusy(busy) {
-      list.setAttribute("aria-busy", busy ? "true" : "false");
-    }
-
-    function render(q) {
-      const query = q.trim();
-      const ql = query.toLowerCase();
-      const acts = actions.filter((a) => a.label.toLowerCase().includes(ql));
-      items = acts.slice();
-      list.innerHTML = "";
-      items.forEach((it, i) => list.appendChild(makeItem(it, i)));
-      clearTimeout(searchTimer);
-      if (searchController) searchController.abort();
-      const seq = ++searchSeq;
-      if (query && !globallyLocked) {
-        setBusy(true);
-        setStatus(tr("正在搜索…", "Searching…"), "loading");
-        searchTimer = setTimeout(() => fetchResults(query, seq), 180);
-      } else {
-        setBusy(false);
-        setStatus(
-          items.length ? "" : (query ? tr("未找到匹配的命令", "No matching commands") : tr("没有可用命令", "No commands available")),
-          items.length ? "" : "empty"
-        );
-      }
-      active = items.length ? 0 : -1;
-      highlight();
-    }
-
-    function makeItem(it, i) {
+    function makeItem(item, index) {
       const li = document.createElement("li");
       li.className = "cmdk-item";
-      li.dataset.index = i;
-      li.id = "cmdkOption" + i;
+      li.id = "cmdkOption" + index;
       li.setAttribute("role", "option");
       li.setAttribute("aria-selected", "false");
-      const span = document.createElement("span");
-      span.textContent = it.label; // safe
-      li.appendChild(span);
-      if (it.hint) {
-        const h = document.createElement("span");
-        h.className = "muted";
-        h.textContent = it.hint;
-        li.appendChild(h);
+      const label = document.createElement("span");
+      label.textContent = item.label; // textContent: prompt names are user data
+      li.appendChild(label);
+      if (item.hint) {
+        const hint = document.createElement("span");
+        hint.className = "muted";
+        hint.textContent = item.hint;
+        li.appendChild(hint);
       }
-      li.addEventListener("click", () => activate(it));
-      li.addEventListener("mousemove", () => { active = i; highlight(false); });
+      li.addEventListener("click", () => activate(item));
+      li.addEventListener("mousemove", () => { active = index; highlight(false); });
       return li;
     }
 
-    function fetchResults(q, seq) {
-      searchController = typeof AbortController === "function" ? new AbortController() : null;
-      const body = new URLSearchParams();
-      body.set("q", q.slice(0, 256));
-      const options = {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          "X-CSRF-Token": csrfToken(),
-        },
-        body: body.toString(),
-      };
-      if (searchController) options.signal = searchController.signal;
-      fetch(window.APP_URLS.search, options)
-        .then((r) => {
-          if (!r.ok) throw new Error("search failed");
-          return r.json();
-        })
-        .then((results) => {
-          if (seq !== searchSeq) return;
-          (Array.isArray(results) ? results : []).forEach((r) => {
-            const it = r.locked
-              ? { label: r.name, hint: tr("已锁定", "Locked"), url: window.APP_URLS.detail + r.id + "/unlock" }
-              : { label: r.name, hint: "", url: window.APP_URLS.detail + r.id };
-            items.push(it);
-            list.appendChild(makeItem(it, items.length - 1));
-          });
-          setBusy(false);
-          setStatus(items.length ? "" : tr("未找到匹配的命令或提示词", "No matching commands or prompts"), items.length ? "" : "empty");
-          if (active < 0 && items.length) active = 0;
-          highlight();
-        })
-        .catch((error) => {
-          if (seq !== searchSeq || (error && error.name === "AbortError")) return;
-          setBusy(false);
-          setStatus(tr("搜索失败，请重试", "Search failed. Please try again."), "error");
-        });
-    }
-
     function highlight(scroll = true) {
-      if (!items.length) active = -1;
-      else active = Math.max(0, Math.min(active, items.length - 1));
-      $$(".cmdk-item", list).forEach((el, i) => {
-        const selected = i === active;
+      active = items.length ? Math.max(0, Math.min(active, items.length - 1)) : -1;
+      $$(".cmdk-item", list).forEach((el, index) => {
+        const selected = index === active;
         el.classList.toggle("active", selected);
         el.setAttribute("aria-selected", selected ? "true" : "false");
       });
@@ -399,70 +375,107 @@
       }
     }
 
-    function activate(it) {
-      if (!it) return;
-      if (it.run) { close(); it.run(); return; }
-      if (it.url) window.location.href = it.url;
+    function render(query) {
+      const needle = query.trim().toLowerCase();
+      items = actions.filter((action) => action.label.toLowerCase().includes(needle));
+      list.replaceChildren(...items.map(makeItem));
+      clearTimeout(timer);
+      controller?.abort();
+      const current = ++seq;
+      if (needle) {
+        setStatus(tr("正在搜索…", "Searching…"));
+        timer = setTimeout(() => search(query, current), 160);
+      } else {
+        setStatus("");
+      }
+      active = items.length ? 0 : -1;
+      highlight();
+    }
+
+    function search(query, current) {
+      controller = typeof AbortController === "function" ? new AbortController() : null;
+      const body = new URLSearchParams({ q: query.slice(0, 256) });
+      fetch(APP.urls.search, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "X-CSRF-Token": csrfToken(),
+        },
+        body: body.toString(),
+        signal: controller?.signal,
+      })
+        .then((response) => { if (!response.ok) throw new Error("search failed"); return response.json(); })
+        .then((results) => {
+          if (current !== seq) return;
+          (Array.isArray(results) ? results : []).forEach((result) => {
+            const item = { label: result.name, hint: result.source || "", url: APP.urls.detail + result.id };
+            items.push(item);
+            list.appendChild(makeItem(item, items.length - 1));
+          });
+          setStatus(items.length ? "" : tr("没有匹配的提示词", "No matching prompts"));
+          if (active < 0 && items.length) active = 0;
+          highlight();
+        })
+        .catch((error) => {
+          if (current !== seq || error?.name === "AbortError") return;
+          setStatus(tr("搜索失败，请重试", "Search failed. Please try again."));
+        });
+    }
+
+    function activate(item) {
+      if (!item) return;
+      if (item.run) { close(); item.run(); return; }
+      if (item.url) window.location.href = item.url;
     }
 
     function open() {
       if (!root.hidden) return;
       lastFocus = document.activeElement;
       root.hidden = false;
-      root.setAttribute("aria-hidden", "false");
       input.setAttribute("aria-expanded", "true");
-      if (openBtn) openBtn.setAttribute("aria-expanded", "true");
+      openButton?.setAttribute("aria-expanded", "true");
       document.body.classList.add("modal-open");
       input.value = "";
       render("");
       setTimeout(() => input.focus(), 0);
     }
+
     function close() {
       if (root.hidden) return;
-      clearTimeout(searchTimer);
-      ++searchSeq;
-      if (searchController) searchController.abort();
+      clearTimeout(timer);
+      seq += 1;
+      controller?.abort();
       root.hidden = true;
-      root.setAttribute("aria-hidden", "true");
       input.setAttribute("aria-expanded", "false");
       input.removeAttribute("aria-activedescendant");
-      if (openBtn) openBtn.setAttribute("aria-expanded", "false");
+      openButton?.setAttribute("aria-expanded", "false");
       document.body.classList.remove("modal-open");
-      setBusy(false);
       setStatus("");
-      const target = lastFocus && lastFocus.isConnected ? lastFocus : openBtn;
-      if (target && target.focus) target.focus({ preventScroll: true });
+      (lastFocus?.isConnected ? lastFocus : openButton)?.focus?.({ preventScroll: true });
     }
 
-    function trapFocus(e) {
-      if (e.key !== "Tab" || root.hidden) return;
-      const focusable = $$(
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        panel
-      ).filter((el) => !el.hidden && el.getAttribute("aria-hidden") !== "true");
-      if (!focusable.length) { e.preventDefault(); panel.focus(); return; }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    }
-
-    if (openBtn) openBtn.addEventListener("click", open);
-    root.addEventListener("keydown", trapFocus);
-    input.addEventListener("input", () => render(input.value));
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowDown" && items.length) { e.preventDefault(); active = (active + 1) % items.length; highlight(); }
-      else if (e.key === "ArrowUp" && items.length) { e.preventDefault(); active = (active - 1 + items.length) % items.length; highlight(); }
-      else if (e.key === "Enter") { e.preventDefault(); activate(items[active]); }
-      else if (e.key === "Escape") { close(); }
-    });
+    openButton?.addEventListener("click", open);
     $$("[data-cmdk-close]", root).forEach((el) => el.addEventListener("click", close));
-    document.addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); root.hidden ? open() : close(); }
-      else if (e.key === "Escape" && !root.hidden) { close(); }  // 焦点不在输入框时也能用 Esc 关闭
+    root.addEventListener("keydown", (event) => trapFocus(event, root));
+    input.addEventListener("input", () => render(input.value));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" && items.length) { event.preventDefault(); active = (active + 1) % items.length; highlight(); }
+      else if (event.key === "ArrowUp" && items.length) { event.preventDefault(); active = (active - 1 + items.length) % items.length; highlight(); }
+      else if (event.key === "Enter") { event.preventDefault(); activate(items[active]); }
+      else if (event.key === "Escape") close();
+    });
+    document.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        root.hidden ? open() : close();
+      } else if (event.key === "Escape" && !root.hidden) {
+        close();
+      }
     });
   })();
 
-  // Enable transitions only after first paint (prevents drawer slide flash).
+  // Enable transitions only after first paint (prevents a drawer slide flash).
   requestAnimationFrame(() => document.documentElement.classList.add("js-ready"));
 })();

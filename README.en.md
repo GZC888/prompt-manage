@@ -1,342 +1,216 @@
 # Prompt Manage
 
-Language: [简体中文](README.md) | English
+A small **personal prompt library**: Flask + SQLite + Jinja, no frontend framework, one container.
 
-<p align="center">
-  <img src="logo.png" alt="Prompt Manager Logo" width="140" />
-</p>
+Prompts you rely on deserve the same treatment as code — findable, reusable, and with a visible
+history of every change. That is all this project does.
 
-A **lightweight, self-hosted** personal prompt manager: version control, search, tags, sources, favorites, archive, images, import/export, EN/ZH UI and light/dark themes. Deliberately lightweight stack — **Python + Flask + SQLite + Jinja + vanilla JS/CSS** — no React/Vue/Next.js, no external CDN, ready for long-term hosting on a personal VPS.
+- **Library** — name, source, tags, notes, accent colour; grid or list view
+- **Version history** — every save is a version; compare, roll back, auto-prune beyond a limit
+- **Instant search** — as you type, across names, tags, sources, notes and body text
+- **Markdown reading** — long prompts render as Markdown, with a one-click raw view
+- **Command palette** — `⌘K` / `Ctrl+K` to search and jump; `/` focuses the list search
+- **Access control** — open, or one site-wide password
+- **Backups** — export/import JSON; a snapshot is written before every import
+- **Bilingual** (Chinese/English) with light, dark and system themes
 
-> Image: `ghcr.io/gzc888/prompt-manage`
+> This repository is a trimmed rewrite of [zhuchenyu2008/prompt-manage](https://github.com/zhuchenyu2008/prompt-manage):
+> per-prompt passwords, cover images, favourites (folded into pinning), copy counters and CSV
+> import/export are gone, and the backend is split into a `promptmanage/` package.
+> Upgrades migrate existing data automatically — see [Upgrading](#upgrading).
 
-## Quick start (Docker Compose)
+---
 
-Choose an image first. Production deployments should use a release tag,
-`sha-*` tag, or digest; `latest` is for temporary validation only.
+## Deploy with Docker Compose
 
 ```bash
-export PROMPT_MANAGE_IMAGE=ghcr.io/gzc888/prompt-manage:sha-REPLACE_ME
-# Replace sha-REPLACE_ME with the exact release/sha tag or image digest.
-```
+mkdir -p prompt-manage && cd prompt-manage
+curl -fsSL https://raw.githubusercontent.com/GZC888/prompt-manage/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/GZC888/prompt-manage/main/.env.example -o .env
 
-Create two different random values. `BOOTSTRAP_TOKEN` is used only to claim a
-brand-new production database:
+echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
+echo "BOOTSTRAP_TOKEN=$(openssl rand -hex 32)" >> .env
+# then pin PROMPT_MANAGE_IMAGE to a concrete tag, e.g. :sha-abc1234
 
-```bash
-umask 077
-printf 'PROMPT_MANAGE_IMAGE=%s\n' "$PROMPT_MANAGE_IMAGE" > .env
-printf 'HOST_BIND=127.0.0.1\n' >> .env
-printf 'SECRET_KEY=%s\n' "$(openssl rand -hex 32)" >> .env
-printf 'BOOTSTRAP_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-printf 'SESSION_COOKIE_SECURE=false\n' >> .env       # direct HTTP access
 docker compose up -d
 ```
 
-On a new production database, business routes stay closed until setup is
-complete. A random `BOOTSTRAP_TOKEN` of at least 32 characters must be
-configured first; known placeholders and short values make the application
-refuse to start, while an empty value leaves `/setup` at HTTP 503. With the example
-loopback binding, open
-`http://127.0.0.1:3501/setup`; through a reverse proxy, use the proxy hostname.
-Enter the token, set an 8+ character password, and choose an auth mode (`global`
-is recommended for public hosting).
-The token is compared in constant time, is never stored in SQLite, and becomes
-unusable after setup. Remove `BOOTSTRAP_TOKEN` from the environment and restart.
-Existing databases remain accessible during upgrades and are not forced through
-setup again.
+Open `http://127.0.0.1:3501/setup`, enter the `BOOTSTRAP_TOKEN` and choose an access password.
+Afterwards you can clear `BOOTSTRAP_TOKEN` and restart; it only exists to claim a fresh database.
 
-Compose binds the published port to `127.0.0.1` by default and uses
-`pull_policy: missing`; run `docker compose pull` after changing a tag/digest.
-Data persists in the Compose logical volume `prompt-data` (`/app/data`). Docker
-normally prefixes the engine volume name with the Compose project name; inspect
-the exact mounted name with
-`docker inspect prompt-manage --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Name}}{{end}}{{end}}'`.
-Compose allows an empty
-`BOOTSTRAP_TOKEN` after setup so it can be removed from the environment; on a
-brand-new production volume the application keeps `/setup` at HTTP 503 and all
-business routes closed until a token is configured. Do not commit `.env` or
-bootstrap credentials. For temporary direct LAN access, set `HOST_BIND=0.0.0.0`
-behind a firewall and keep `TRUST_PROXY_HEADERS=false`.
+The container binds to `127.0.0.1` by default. To publish it, put a reverse proxy that terminates
+HTTPS in front — do not expose the container port directly.
 
-## Dokploy
-
-Create a **Compose** app from `docker-compose.yml`, set `PROMPT_MANAGE_IMAGE` to
-an immutable tag/digest, and set different `SECRET_KEY` and `BOOTSTRAP_TOKEN`
-values (`openssl rand -hex 32`). Behind an
-HTTPS reverse proxy, set `SESSION_COOKIE_SECURE=true`. Set
-`TRUST_PROXY_HEADERS=true` only when every request reaches the app through one
-trusted nearest proxy that overwrites `X-Forwarded-For` and
-`X-Forwarded-Proto`; never expose port `3501` directly in that configuration.
-For multiple proxy hops, normalize the headers at the proxy nearest the app.
-Mount persistent storage at `/app/data`. Complete `/setup`, remove
-`BOOTSTRAP_TOKEN`, and redeploy.
-
-### HTTPS, HSTS, and Cloudflare
-
-Secure cookies and HSTS do not provide TLS. Terminate valid HTTPS at Dokploy,
-Nginx, Caddy, or a Cloudflare Origin and redirect HTTP to HTTPS first.
-Production enables `ENABLE_HSTS` by default, but the app sends
-`Strict-Transport-Security: max-age=<HSTS_MAX_AGE>` only for requests it
-recognizes as HTTPS. `HSTS_INCLUDE_SUBDOMAINS` defaults to `false`; set it to
-`true` only after every affected subdomain supports HTTPS to append
-`includeSubDomains`. `HSTS_MAX_AGE=0` asks browsers to clear the policy.
-
-With Cloudflare, use **Full (strict)** TLS and disable **Rocket Loader** for this
-application hostname. Rocket Loader can reorder the early layout and interaction
-scripts. Do not cache login, settings, or other dynamic HTML responses.
-
-## GHCR / CI
-
-GitHub Actions builds and pushes on push to `main` (`:latest`, `:sha-xxxxxxx`), on `v*` tags (`:1.2.3`, `:1.2`), and via manual dispatch. Permissions are minimal (`contents: read`, `packages: write`).
+### Build from source
 
 ```bash
-set -eu
-docker pull "$PROMPT_MANAGE_IMAGE"
-docker rm -f prompt-manage-verify >/dev/null 2>&1 || true
-docker run -d --name prompt-manage-verify -p 127.0.0.1:3501:3501 \
-  -e SECRET_KEY="$(openssl rand -hex 32)" \
-  -e BOOTSTRAP_TOKEN="$(openssl rand -hex 32)" \
-  -e SESSION_COOKIE_SECURE=false \
-  "$PROMPT_MANAGE_IMAGE"
-attempt=1
-until curl -fsS http://127.0.0.1:3501/healthz 2>/dev/null; do
-  if [ "$attempt" -ge 30 ]; then
-    docker logs prompt-manage-verify || true
-    docker rm -f prompt-manage-verify >/dev/null 2>&1 || true
-    exit 1
-  fi
-  attempt=$((attempt + 1))
-  sleep 1
-done
-docker rm -f prompt-manage-verify >/dev/null
+git clone https://github.com/GZC888/prompt-manage.git && cd prompt-manage
+docker build -t prompt-manage:local .
+PROMPT_MANAGE_IMAGE=prompt-manage:local docker compose up -d
 ```
 
-`GET /healthz` returns `{"status":"ok","build_sha":"...","initialized":true|false}`. This proves that the
-container and database are reachable; a new production database still requires
-the `/setup` flow above.
+### Dokploy
 
-## Environment variables
+Create a **Docker Compose** application pointing at this repository with `docker-compose.yml`,
+set `SECRET_KEY` / `BOOTSTRAP_TOKEN` in the panel, and mount `/app/data` on a persistent volume.
+Set `TRUST_PROXY_HEADERS=true` when Dokploy's Traefik terminates HTTPS for you.
 
-See [`.env.example`](.env.example) for the complete list.
+> ⚠️ Give the app its own volume (e.g. `prompt-manage-data`). Sharing a volume literally named
+> `data` with other applications mixes unrelated files together and makes backups risky.
 
-| Variable | Default | Purpose |
+---
+
+## Configuration
+
+Full list in [`.env.example`](.env.example). The ones that matter most:
+
+| Variable | Default | Notes |
 | --- | --- | --- |
-| `PROMPT_MANAGE_IMAGE` | none | **Required by Compose.** Use a release/`sha-*` tag or digest in production. |
-| `HOST_BIND` | `127.0.0.1` | Host address for the published port; use `0.0.0.0` only behind a firewall/private network. |
-| `HOST_PORT` | `3501` | Host-side published port. |
-| `APP_ENV` | `production` | `production`, `development`, or `testing`. Compose pins `production`; other values are only for source runs or a custom override. |
-| `APP_PORT` | `3501` | Application listen port. |
-| `DB_PATH` | `/app/data/data.sqlite3` | SQLite path. In Docker it must be an absolute path inside `/app/data`; persist that whole directory. |
-| `SECRET_KEY` | none | **Required in production.** Generate with `openssl rand -hex 32`. |
-| `BOOTSTRAP_TOKEN` | none | **Required for first setup** of a new production DB; an empty value makes `/setup` return 503. Remove and restart after setup. |
-| `SESSION_COOKIE_SECURE` | production `true` | Set `true` only when users reach the app over HTTPS. |
-| `SESSION_COOKIE_SAMESITE` | `Lax` | `Lax`, `Strict`, or `None`. |
-| `TRUST_PROXY_HEADERS` | `false` | Trust one nearest proxy's client-IP and scheme headers. Never combine with direct port access. |
-| `PERMANENT_SESSION_DAYS` | `3650` | Owner login lifetime. |
-| `AUTH_LOGIN_MAX_ATTEMPTS` | `10` | Failed attempts allowed per IP and route in one window. |
-| `AUTH_LOGIN_WINDOW_SECONDS` | `900` | Per-IP failure-count window in seconds. |
-| `AUTH_LOCK_SECONDS` | `900` | Lock duration after the per-IP limit is reached. |
-| `GLOBAL_LOGIN_MAX_ATTEMPTS` | `1000` | Site-wide failed-attempt ceiling against distributed guessing. |
-| `GLOBAL_LOGIN_WINDOW_SECONDS` | `3600` | Site-wide failure-count window in seconds. |
-| `MAX_IMPORT_SIZE_MB` | `10` | Maximum import file size. |
-| `MAX_IMAGE_SIZE_MB` | `5` | Maximum size of one cover image. |
-| `IMPORT_BACKUP_RETENTION` | `20` | Maximum retained pre-import JSON snapshots. |
-| `ENABLE_SECURITY_HEADERS` | `true` | Emit CSP and other security headers. |
-| `ENABLE_HSTS` | production `true` | Emit HSTS only on requests recognized as HTTPS; does not enable TLS. |
-| `HSTS_MAX_AGE` | `31536000` | HSTS lifetime in seconds. |
-| `HSTS_INCLUDE_SUBDOMAINS` | `false` | Append `includeSubDomains`; enable only when every affected subdomain supports HTTPS. |
-| `GUNICORN_WORKERS` | `2` | Gunicorn worker processes; do not raise blindly with SQLite writes. |
-| `GUNICORN_THREADS` | `4` | Threads per worker. |
-| `GUNICORN_TIMEOUT` | `60` | Request timeout in seconds. |
-| `GUNICORN_GRACEFUL_TIMEOUT` | `30` | Graceful shutdown timeout in seconds. |
-| `GUNICORN_LOG_LEVEL` | `info` | Gunicorn log level. |
-| `BUILD_SHA` | `dev` (build time) | Build identifier exposed by `/healthz`; CI injects it into release images, so do not override it at runtime. |
-| `FLASK_DEBUG` | `false` | Used only by local `python app.py`; never enable in production. |
+| `SECRET_KEY` | — | **Required in production**, ≥32 random chars. Missing or weak ⇒ refuses to start |
+| `BOOTSTRAP_TOKEN` | empty | Required to claim a fresh database; `/setup` returns 503 without it |
+| `DB_PATH` | `/app/data/data.sqlite3` | Must live on the persistent volume |
+| `SESSION_COOKIE_SECURE` | `true` in production | Keep `true` behind HTTPS; set `false` for plain HTTP or login cannot work |
+| `TRUST_PROXY_HEADERS` | `false` | Enable only when every request passes a trusted proxy |
+| `MAX_IMPORT_SIZE_MB` | `10` | Largest JSON backup accepted |
+| `AUTH_LOGIN_MAX_ATTEMPTS` | `10` | Failures per IP and route inside the window |
 
-Never commit real `SECRET_KEY` or `BOOTSTRAP_TOKEN` values, or put the bootstrap
-token in a URL or support ticket. An empty bootstrap token is not a supported
-passwordless first-run mode.
+---
 
-## Auth modes
+## Access control
 
-- `off` — no password, fully open (local/intranet only).
-- `global` — password gates the whole site, log in once. **Recommended for public deployments** (`off` has no protection; `per` only protects flagged prompts).
-- `per` — site is browsable, but prompts flagged "require password" are individually locked; their content/tags/source/notes never appear in lists, search, the tags API, or default exports.
+Two modes, switched under **Settings → Access**:
 
-Passwords must be **at least 8 chars with no maximum length** (long passphrases encouraged). Legacy 4–8 digit passwords still log in and are transparently upgraded to a Werkzeug hash. `/settings` and `/export` require login once a password is set.
-In `per` mode, the prompt unlock password is the same owner credential used for
-full administration. Anyone who knows it can modify or delete every prompt; do
-not distribute it as a read-only sharing password.
+- **Off** — no password. For local use, or when an identity gateway such as Cloudflare Access
+  or Authelia already sits in front.
+- **Access password** — one password guards every page and endpoint.
 
-## Data, backup, restore, and upgrade
+Passwords are hashed with Werkzeug (scrypt); a legacy SHA-256 hash is upgraded on the next
+successful login. Changing the password or the mode requires the current password and signs out
+every device. Failed logins are rate-limited per IP and route, with a second site-wide threshold
+against distributed guessing.
 
-SQLite uses WAL, so a running database may consist of `data.sqlite3` plus
-`data.sqlite3-wal` and `data.sqlite3-shm`. Persist the whole `/app/data`
-directory. **Do not copy only `data.sqlite3` while the app is running**: committed
-transactions may still exist only in the WAL.
+---
 
-JSON/CSV is a portable **logical export** of prompt content, versions, and
-selected non-auth settings. Normal exports do not contain credentials. A logged-in
-owner can explicitly request `include_locked=1&include_auth=1` for a full logical
-restore export; that file includes the auth mode and **password hash**, so treat it
-as a secret: encrypt it and restrict access. It does not contain every SQLite
-state such as rate-limit rows, unlock sessions, or migration tables. In `per`
-mode, the normal export may also omit protected prompts. Pre-import JSON files in
-`dirname(DB_PATH)/backups/pre-import-*.json` (by default,
-`/app/data/backups/pre-import-*.json`) include the prompt data and recoverable
-settings, but are same-volume rollback points, not off-site disaster-recovery
-snapshots. A normal import restores general settings but deliberately does not
-replace the current auth credentials unless an explicit high-risk auth-restore
-operation is requested.
+## Data, backup and restore
 
-For a consistent online physical snapshot, use SQLite's Online Backup API and
-then copy the result off the container:
+Everything lives in the single SQLite file at `DB_PATH`; backing up means backing up `/app/data`.
+
+**Export** — "Export JSON" on the settings page produces every prompt with its full version
+history. While signed in you can also export a full backup that includes the password hash.
+
+**Import** — pick a JSON file and confirm. It **replaces all existing data**, but a complete
+snapshot of the current database is written to `dirname(DB_PATH)/backups/pre-import-*.json` first,
+keeping the most recent `IMPORT_BACKUP_RETENTION` files.
+
+Uploaded bundles are validated in full before a single row is written: ids must be safe positive
+integers, timestamps must be real and not in the future, and the version graph must reference only
+versions inside the same prompt with no cycles. Any failure rejects the whole file.
 
 ```bash
-set -eu
-umask 077
-backup="prompt-data-$(date +%Y%m%d-%H%M%S).sqlite3"
-backup_path="$(docker exec -e BACKUP_NAME="$backup" prompt-manage \
-  python -c 'import os; print(os.path.join(os.path.dirname(os.environ["DB_PATH"]), "backups", os.environ["BACKUP_NAME"]))')"
-docker exec -e BACKUP_FILE="$backup_path" prompt-manage \
-  python -c 'import os,sqlite3; os.umask(0o077); src=sqlite3.connect(os.environ["DB_PATH"]); dst=sqlite3.connect(os.environ["BACKUP_FILE"]); src.backup(dst); dst.close(); src.close()'
-if docker cp "prompt-manage:$backup_path" "./$backup" && chmod 600 "./$backup"; then
-  docker exec prompt-manage rm -f -- "$backup_path" || \
-    echo "Snapshot copied, but temporary volume file cleanup failed: $backup_path" >&2
-else
-  echo "Copy failed; the snapshot remains at $backup_path. Verify a retry before deleting it manually." >&2
-  exit 1
-fi
-```
+# Backup
+docker compose exec prompt-manage sh -c 'sqlite3 /app/data/data.sqlite3 ".backup /app/data/backup.sqlite3"' \
+  && docker compose cp prompt-manage:/app/data/backup.sqlite3 ./backup.sqlite3
 
-The volume-side temporary snapshot is deleted only after both `docker cp` and the
-local permission change succeed. If copying or cleanup fails, retry and verify the
-local file first, then run `docker exec prompt-manage rm -f -- <path>` using the
-reported path; do not delete the only usable copy first.
-
-For an offline volume archive, stop the service and copy all of `/app/data`,
-including any WAL/SHM files, before starting it again:
-
-```bash
-set -eu
-umask 077
-install -d -m 700 ./backups
+# Restore
 docker compose stop prompt-manage
-trap 'docker compose start prompt-manage' EXIT
-docker compose run --rm --no-deps -v "$PWD/backups:/backup" --entrypoint sh prompt-manage \
-  -c 'umask 077; tar -czf "/backup/prompt-data-$(date +%Y%m%d-%H%M%S).tar.gz" -C /app/data .'
+docker compose cp ./backup.sqlite3 prompt-manage:/app/data/data.sqlite3
 docker compose start prompt-manage
-trap - EXIT
 ```
 
-Physical snapshots and volume archives contain password hashes and all protected
-content. Encrypt them, restrict access, keep them outside web-served paths, and
-run `PRAGMA integrity_check` before relying on a restore.
+---
 
-Upgrade with `docker compose pull && docker compose up -d`. Startup migrations
-are recorded in `schema_migrations` and abort startup on failure. A migration may
-transactionally create a replacement table, copy data, drop the old table, and
-rename the replacement to add constraints. Do not rely on a “no drop/rename”
-guarantee. Take a restorable physical backup first. For repeatable releases and
-rollback, pin a release tag, `sha-*` tag, or image digest instead of `latest`.
-
-### Restore drill
-
-Before each upgrade and at least monthly, run the following commands in the same
-shell. First create a uniquely named empty volume, restore one of the two physical
-backup formats below, and then start the test container. File variables must
-contain the complete relative filename, including its extension.
+## Upgrading
 
 ```bash
-set -eu
-restore_suffix="$(date +%Y%m%d%H%M%S)-$$"
-restore_volume="prompt-restore-test-$restore_suffix"
-restore_container="prompt-restore-test-$restore_suffix"
-docker volume create "$restore_volume"
+# 1) back up /app/data first (above)
+# 2) point PROMPT_MANAGE_IMAGE at the new tag, then
+docker compose pull && docker compose up -d
+docker compose logs -f prompt-manage   # "Applied migration" lines mean it is migrating
 ```
 
-Restore an online `.sqlite3` snapshot from the current directory:
+Coming from an older version (per-prompt passwords, cover images, favourites), migration 12 does
+the following, and **never makes anything more visible than it was**:
 
-```bash
-snapshot="prompt-data-YYYYMMDD-HHMMSS.sqlite3"
-docker run --rm -v "$restore_volume:/data" -v "$PWD:/restore:ro" alpine:3.20 \
-  sh -c 'cp "/restore/$1" /data/data.sqlite3' sh "$snapshot"
-```
+- `auth_mode=per` → `global`: previously protected prompts still need the password, and the rest
+  become protected too
+- every `favorite=1` prompt becomes pinned
+- any stored cover images are written to `dirname(DB_PATH)/removed-covers-*.json` before the
+  column is dropped
+- the `prompt_unlocks` table and the `require_password` / `copy_count` / `last_used_at` columns
+  are removed
 
-Or restore an offline volume archive from `./backups`. Extract it into an empty
-volume; never merge it over stale volume files:
+Old JSON backups still import: `favorite` folds into `pinned`, and `auth_mode=per` becomes `global`.
 
-```bash
-archive="backups/prompt-data-YYYYMMDD-HHMMSS.tar.gz"
-docker run --rm -v "$restore_volume:/data" -v "$PWD:/restore:ro" alpine:3.20 \
-  sh -c 'tar -xzf "/restore/$1" -C /data' sh "$archive"
-```
+---
 
-Start the same image bound only to loopback. Keep the default path below for the
-`.sqlite3` snapshot; when restoring an archive from a deployment with a custom
-`DB_PATH`, set `restore_db_path` to that original value:
-
-```bash
-restore_db_path=/app/data/data.sqlite3
-docker run -d --name "$restore_container" -p 127.0.0.1:3502:3501 \
-  -e SECRET_KEY="$(openssl rand -hex 32)" -e SESSION_COOKIE_SECURE=false \
-  -e DB_PATH="$restore_db_path" \
-  -v "$restore_volume:/app/data" "$PROMPT_MANAGE_IMAGE"
-attempt=1
-until curl -fsS http://127.0.0.1:3502/healthz 2>/dev/null; do
-  if [ "$attempt" -ge 30 ]; then
-    docker logs "$restore_container" || true
-    exit 1
-  fi
-  attempt=$((attempt + 1))
-  sleep 1
-done
-docker exec "$restore_container" python -c 'import os,sqlite3,sys; c=sqlite3.connect(os.environ["DB_PATH"]); r=c.execute("PRAGMA integrity_check").fetchall(); print(r); c.close(); sys.exit(0 if r == [("ok",)] else 1)'
-```
-
-Confirm the health response reports `initialized=true` and the integrity command
-prints only `[('ok',)]`, then actually test login, representative prompts, version
-history, and export. Do not test by overwriting production. For a real `.sqlite3`
-restore, stop all access first, move the old database and its `-wal`/`-shm` files
-aside, place the snapshot at `DB_PATH`, and restart. To restore an offline archive,
-extract it into a new empty volume, mount that volume, and retain the original
-`DB_PATH`; do not merge it over stale files. In either case, check migration logs,
-health, auth mode, HTTPS cookies, and data. Keep at least one verified copy on a
-separate host or object store.
-
-After the checks, remove the temporary resources:
-
-```bash
-docker rm -f "$restore_container"
-docker volume rm "$restore_volume"
-```
-
-### Deployment acceptance
-
-1. `docker compose ps` reports `healthy`; logs contain no secret, volume,
-   bootstrap, or migration error.
-2. `curl -fsS https://<host>/healthz` reports `status=ok`, the expected
-   `build_sha`, and the correct `initialized` state rather than assuming a tag
-   changed.
-3. After `/setup`, remove `BOOTSTRAP_TOKEN`, restart, and confirm setup cannot be
-   repeated. Test login, create/export/delete a disposable prompt.
-4. Check CSP and other headers with `curl -sSI https://<host>/`; when enabled,
-   verify HSTS, HTTP-to-HTTPS redirect, and Secure-cookie login persistence.
-5. With proxy trust enabled, verify port `3501` is unreachable directly and the
-   client IP in rate-limit logs matches the actual proxy topology.
-6. Complete and record an isolated restore drill. A green health endpoint alone
-   does not prove that content, authentication, and backups are recoverable.
-
-## Local development & tests
+## Development
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-export SECRET_KEY=dev-only APP_ENV=development DB_PATH=./data/data.sqlite3 FLASK_DEBUG=true
-python app.py            # http://127.0.0.1:3501  (production uses: gunicorn -c gunicorn.conf.py wsgi:app)
 
-pytest -q                # uses a throwaway SQLite db, never touches real data
+export APP_ENV=development
+export SECRET_KEY=dev-only-key-0123456789abcdef0123456789
+export DB_PATH="$PWD/data/dev.sqlite3"
+export SESSION_COOKIE_SECURE=false
+python app.py                     # http://127.0.0.1:3501
 ```
 
-License: see [LICENSE](LICENSE).
+```bash
+python -m pytest -q
+ruff check app.py wsgi.py gunicorn.conf.py promptmanage tests
+```
+
+---
+
+## Layout
+
+```
+app.py                 dev entry point + the stable import surface for tests/tools
+wsgi.py                production entry point (gunicorn wsgi:app)
+promptmanage/
+  __init__.py          app factory, request lifecycle, security headers, error pages
+  config.py            environment parsing and validation (fails fast at startup)
+  db.py                connections and the settings table
+  migrations.py        schema history
+  security.py          passwords, sessions, CSRF, rate limiting, access control
+  transfer.py          JSON backup export, validation and import
+  utils.py             timestamps, tags, colours, version numbers, safe redirects
+  i18n.py              translation table
+  views/               routes: library / settings / auth / api / misc
+templates/  static/    Jinja templates and assets (no build step)
+```
+
+Notes:
+
+- Single-file SQLite with WAL; writes take `BEGIN IMMEDIATE` and a writer lock returns
+  503 with `Retry-After`
+- Migrations run once inside a database-wide write lock, so concurrent workers cannot race
+- Sessions are recorded server-side in `auth_sessions`: changing the password invalidates every
+  device, and a copied cookie stops authenticating
+- Double-submit CSRF, plus CSP, `X-Frame-Options` and `Referrer-Policy` by default
+- No frontend dependencies or build step: ~1.1k lines of plain JS, including a Markdown renderer
+  that escapes before it parses
+
+---
+
+## FAQ
+
+**Login silently fails.** Almost always plain HTTP with `SESSION_COOKIE_SECURE=true`, so the
+browser drops the session cookie. Set it to `false` and restart, or serve over HTTPS.
+
+**Forgot the password.** Stop the container and edit the database:
+`sqlite3 /app/data/data.sqlite3 "UPDATE settings SET value='off' WHERE key='auth_mode';"`
+then restart and set a new one in Settings.
+
+**`/setup` returns 503.** `BOOTSTRAP_TOKEN` is not configured. Set a random value and restart;
+clear it once setup is done.
+
+**`SECRET_KEY is missing or too weak` on startup.** Production needs a ≥32-character random key:
+`openssl rand -hex 32`.
+
+---
+
+## License
+
+GPL-3.0-only — see [LICENSE](LICENSE).
